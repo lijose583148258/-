@@ -3,7 +3,7 @@ description: 翻译通 - 中越翻译学习App，完全离线可用，无需服�
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: ">=3.3.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -30,7 +30,7 @@ dependencies:
   # flutter_tts: 调用 Android TextToSpeech API（华为/小米/OPPO 均支持）
   flutter_tts: ^4.0.2
   # speech_to_text: 调用 Android SpeechRecognizer（各厂商自带语音引擎）
-  speech_to_text: ^6.6.2
+  speech_to_text: ^7.3.0
 
   # ── 权限管理 ──────────────────────────────────────
   # 运行时申请麦克风权限，兼容 Android 6.0+
