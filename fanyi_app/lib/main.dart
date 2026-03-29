@@ -1,21 +1,16 @@
-import 'package:flutter/material.dart';
-import 'screens/translation_screen.dart';
-import 'screens/conversation_screen.dart';
-import 'screens/dictionary_screen.dart';
-import 'screens/slang_screen.dart';
+﻿import 'package:flutter/material.dart';
+
 import 'screens/camera_screen.dart';
+import 'screens/conversation_screen.dart';
+import 'screens/learn_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/translation_screen.dart';
 import 'services/translation_service.dart';
+import 'ui/app_theme.dart';
 
 void main() {
-  // 在 Flutter 渲染引擎完全初始化后再执行原生代码
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 预热翻译服务：在后台悄悄检测 Google Play 服务是否可用。
-  // 这里故意不 await，让检测与界面渲染并发进行，启动不卡顿。
-  // 检测完成前翻译请求会自动跳过 ML Kit，直接用 MyMemory 兜底。
   TranslationService.warmUp();
-
   runApp(const FanyiTongApp());
 }
 
@@ -27,28 +22,7 @@ class FanyiTongApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: '翻译通',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFD2B48C),
-          surface: const Color(0xFFFFFBF5),
-        ),
-        // 使用系统默认字体，避免依赖 Google Fonts 网络请求
-        textTheme: const TextTheme(
-          titleLarge: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF677D6A),
-          ),
-          bodyMedium: TextStyle(fontSize: 14, color: Color(0xFF5D5D5D)),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      ),
+      theme: AppTheme.theme,
       home: const MainLayout(),
     );
   }
@@ -64,52 +38,130 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
 
-  // IndexedStack 保持每个页面的状态，切换 tab 时不会重新加载数据
   static const List<Widget> _screens = [
     TranslationScreen(),
     ConversationScreen(),
-    DictionaryScreen(),
-    SlangScreen(),
+    LearnScreen(),
     CameraScreen(),
+  ];
+
+  static const List<_NavItem> _items = [
+    _NavItem(icon: Icons.translate_rounded, label: '翻译'),
+    _NavItem(icon: Icons.forum_rounded, label: '对话'),
+    _NavItem(icon: Icons.school_rounded, label: '学习'),
+    _NavItem(icon: Icons.camera_alt_rounded, label: '拍照'),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _screens),
-      // 右上角设置按钮入口（通过 AppBar action 或悬浮按钮都可以）
-      floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton.small(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
-              backgroundColor: const Color(0xFFD2B48C),
-              tooltip: '翻译引擎设置',
-              child: const Icon(Icons.settings, color: Colors.white, size: 20),
-            )
-          : null,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
-        selectedItemColor: const Color(0xFF677D6A),
-        unselectedItemColor: Colors.grey.shade400,
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedFontSize: 11,
-        unselectedFontSize: 10,
-        items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.translate), label: '即时翻译'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.record_voice_over), label: '面对面'),
-          BottomNavigationBarItem(icon: Icon(Icons.book), label: '深度词典'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.trending_up), label: '热门俚语'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.camera_alt), label: '拍照翻译'),
+      body: Stack(
+        children: [
+          const Positioned.fill(child: AppThemeShell()),
+          Positioned.fill(
+            child: IndexedStack(index: _selectedIndex, children: _screens),
+          ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.small(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          );
+        },
+        backgroundColor: AppTheme.accent,
+        foregroundColor: Colors.white,
+        child: const Icon(Icons.tune_rounded),
+      ),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.shell,
+          border: Border(
+            top: BorderSide(color: AppTheme.borderStrong, width: 1),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+            child: Row(
+              children: List.generate(_items.length, (index) {
+                final item = _items[index];
+                final selected = index == _selectedIndex;
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => setState(() => _selectedIndex = index),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppTheme.panelStrong
+                              : Colors.white.withValues(alpha: 0.76),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selected
+                                ? AppTheme.accent
+                                : AppTheme.borderMuted,
+                          ),
+                          boxShadow: selected
+                              ? const [
+                                  BoxShadow(
+                                    color: AppTheme.shadow,
+                                    blurRadius: 14,
+                                    offset: Offset(0, 8),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              item.icon,
+                              size: 20,
+                              color: selected
+                                  ? AppTheme.ink
+                                  : AppTheme.inkMuted,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              item.label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: selected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: selected
+                                    ? AppTheme.ink
+                                    : AppTheme.inkMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
       ),
     );
   }
+}
+
+class _NavItem {
+  final IconData icon;
+  final String label;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+  });
 }

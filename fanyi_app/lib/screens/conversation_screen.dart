@@ -1,21 +1,10 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+
 import '../services/speech_service.dart';
 import '../services/translation_service.dart';
 import '../services/tts_service.dart';
+import '../ui/app_theme.dart';
 
-/// 面对面对话翻译页面
-///
-/// 使用场景：两个人面对面，一个说中文，一个说越南语，
-///   App 负责实时翻译并朗读给对方听。
-///
-/// 交互模式：PTT（Push-to-Talk，按住说话）
-///   比连续监听更省电、更准确，不会误触发。
-///   用户按住按钮说话，松开后自动翻译+朗读。
-///
-/// 布局逻辑：
-///   - 屏幕上半部分：越南语一方（倒置显示，方便对面的人阅读）
-///   - 屏幕下半部分：中文一方（正常显示）
-///   - 中间：交换按钮（切换谁说中文谁说越南语）
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({super.key});
 
@@ -24,142 +13,134 @@ class ConversationScreen extends StatefulWidget {
 }
 
 class _ConversationScreenState extends State<ConversationScreen> {
-  // 对话历史记录
-  final List<_ConvMessage> _messages = [];
+  final List<_ConversationEntry> _messages = [];
 
-  // 状态管理
-  bool _sttAvailable = false;      // 设备是否支持语音识别
-  bool _viSpeechAvailable = false; // 是否支持越南语语音识别
-  bool _isListeningZh = false;     // 正在监听中文
-  bool _isListeningVi = false;     // 正在监听越南语
-  String _liveText = '';           // 正在识别中的实时文字（未最终确认）
+  bool _speechAvailable = false;
+  bool _vietnameseSpeechAvailable = false;
+  bool _isListeningChinese = false;
+  bool _isListeningVietnamese = false;
+  String _liveText = '';
 
   @override
   void initState() {
     super.initState();
-    _initServices();
+    _initSpeech();
   }
 
-  Future<void> _initServices() async {
+  Future<void> _initSpeech() async {
     final available = await SpeechService.initialize();
-    final viSpeech = await SpeechService.isVietnameseSpeechSupported();
-    if (mounted) {
-      setState(() {
-        _sttAvailable = available;
-        _viSpeechAvailable = viSpeech;
-      });
-    }
+    final viAvailable = await SpeechService.isVietnameseSpeechSupported();
+    if (!mounted) return;
+    setState(() {
+      _speechAvailable = available;
+      _vietnameseSpeechAvailable = viAvailable;
+    });
   }
 
-  // ─── PTT 按住开始录音，松开结束 ─────────────────────────
-  Future<void> _startListening(bool isChinese) async {
-    if (!_sttAvailable) {
-      _showNoSpeechDialog();
+  Future<void> _startListening(bool chineseSource) async {
+    if (!_speechAvailable) {
+      _showSpeechUnavailable();
       return;
     }
-    if (isChinese) {
-      setState(() { _isListeningZh = true; _liveText = ''; });
-    } else {
-      setState(() { _isListeningVi = true; _liveText = ''; });
-    }
 
-    final localeId = isChinese ? 'zh-CN' : 'vi-VN';
+    setState(() {
+      _liveText = '';
+      _isListeningChinese = chineseSource;
+      _isListeningVietnamese = !chineseSource;
+    });
+
     await SpeechService.startListening(
-      localeId: localeId,
+      localeId: chineseSource ? 'zh-CN' : 'vi-VN',
       onResult: (text) {
-        if (mounted) setState(() => _liveText = text);
+        if (mounted) {
+          setState(() => _liveText = text);
+        }
       },
-      onDone: () => _stopAndTranslate(isChinese),
+      onDone: () => _finishListening(chineseSource),
     );
   }
 
-  Future<void> _stopAndTranslate(bool isChinese) async {
+  Future<void> _finishListening(bool chineseSource) async {
     await SpeechService.stopListening();
-    final text = _liveText.trim();
+    final original = _liveText.trim();
 
     if (mounted) {
       setState(() {
-        _isListeningZh = false;
-        _isListeningVi = false;
+        _isListeningChinese = false;
+        _isListeningVietnamese = false;
         _liveText = '';
       });
     }
 
-    if (text.isEmpty) return;
+    if (original.isEmpty) return;
 
-    // 执行翻译
-    final direction = isChinese
-        ? TranslationService.zhToVi
-        : TranslationService.viToZh;
-    final result = await TranslationService.translate(text, direction: direction);
+    final result = await TranslationService.translate(
+      original,
+      direction: chineseSource
+          ? TranslationService.zhToVi
+          : TranslationService.viToZh,
+    );
 
     if (!mounted) return;
 
-    // 添加到对话历史
     setState(() {
-      _messages.insert(0, _ConvMessage(
-        original: text,
-        translated: result.translated,
-        isChinese: isChinese,
-        sourceLabel: result.sourceLabel,
-      ));
+      _messages.insert(
+        0,
+        _ConversationEntry(
+          original: original,
+          translated: result.translated,
+          chineseSource: chineseSource,
+          sourceLabel: result.sourceLabel,
+        ),
+      );
     });
 
-    // 自动朗读译文给对方听
-    await TtsService.speak(result.translated, isVietnamese: isChinese);
+    await TtsService.speak(
+      result.translated,
+      isVietnamese: chineseSource,
+    );
   }
 
-  // ─── 手动文字输入（备用方案，不支持语音时使用）─────────
-  Future<void> _manualInput(bool isChinese) async {
+  Future<void> _manualInput(bool chineseSource) async {
     final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isChinese ? '输入中文' : 'Nhập tiếng Việt'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: isChinese ? '请输入中文...' : 'Nhập tiếng Việt...',
+      builder: (context) {
+        return AlertDialog(
+          title: Text(chineseSource ? '输入中文' : '输入越南语'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              hintText: '输入后会直接翻译并朗读。',
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('翻译'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('翻译'),
+            ),
+          ],
+        );
+      },
     );
 
-    if (confirmed == true && controller.text.isNotEmpty) {
+    if (confirmed == true && controller.text.trim().isNotEmpty) {
       _liveText = controller.text;
-      await _stopAndTranslate(isChinese);
+      await _finishListening(chineseSource);
     }
   }
 
-  void _showNoSpeechDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('语音识别不可用'),
-        content: const Text(
-          '当前设备不支持语音识别，或麦克风权限未开启。\n\n'
-          '请检查：\n'
-          '1. 是否已授予麦克风权限\n'
-          '2. 手机设置 → 应用 → 翻译通 → 权限\n\n'
-          '您仍可以使用手动输入按钮进行对话翻译。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('我知道了'),
-          ),
-        ],
+  void _showSpeechUnavailable() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('当前设备无法使用语音识别，请改用手动输入。'),
       ),
     );
   }
@@ -167,234 +148,165 @@ class _ConversationScreenState extends State<ConversationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFBF5),
       appBar: AppBar(
-        title: const Text(
-          '面对面翻译',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF677D6A),
-          ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'DUAL TALK',
+              style: TextStyle(fontSize: 11, letterSpacing: 1.1, color: AppTheme.inkMuted),
+            ),
+            Text('对话翻译'),
+          ],
         ),
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         actions: [
-          // 清除对话历史
           if (_messages.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.grey),
               onPressed: () => setState(() => _messages.clear()),
-              tooltip: '清除记录',
+              icon: const Icon(Icons.delete_outline_rounded),
+              tooltip: '清空记录',
             ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // ── 越南语一方（上半部分，倒置）────────────────────
-          Expanded(
-            flex: 2,
-            child: RotatedBox(
-              quarterTurns: 2, // 倒置，让对面的人能正向阅读
-              child: _buildSpeakerPanel(
-                isChinese: false,
-                isListening: _isListeningVi,
-                color: const Color(0xFFF0F8FF),
-                icon: '🇻🇳',
-                label: 'Nói tiếng Việt',
-                sublabel: _viSpeechAvailable ? '按住说越南语' : '点击输入越南语',
-              ),
-            ),
-          ),
-
-          // ── 中间分隔条 ────────────────────────────────────
-          Container(
-            height: 44,
-            color: const Color(0xFFE7F0DC),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.swap_vert, color: Color(0xFF677D6A), size: 20),
-                const SizedBox(width: 6),
-                Text(
-                  _liveText.isNotEmpty
-                      ? '「$_liveText」'
-                      : '对话翻译 · 按住说话',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF677D6A),
-                    fontWeight: FontWeight.w500,
-                  ),
+          const Positioned.fill(child: AppThemeShell()),
+          Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+                child: ModemStatusBar(
+                  pills: [
+                    const StatusPillData('PTT MODE', AppTheme.accentSoft),
+                    StatusPillData(
+                      _speechAvailable ? 'MIC READY' : 'MANUAL ONLY',
+                      _speechAvailable ? AppTheme.success : AppTheme.amber,
+                    ),
+                    StatusPillData(
+                      _vietnameseSpeechAvailable ? 'VI STT ON' : 'VI STT LIMITED',
+                      _vietnameseSpeechAvailable ? AppTheme.cyan : AppTheme.amber,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-
-          // ── 中文一方（下半部分）──────────────────────────
-          Expanded(
-            flex: 2,
-            child: _buildSpeakerPanel(
-              isChinese: true,
-              isListening: _isListeningZh,
-              color: const Color(0xFFFFF8F0),
-              icon: '🇨🇳',
-              label: '说中文',
-              sublabel: _sttAvailable ? '按住说中文' : '点击输入中文',
-            ),
-          ),
-
-          // ── 对话历史记录 ──────────────────────────────────
-          if (_messages.isNotEmpty)
-            Container(
-              height: 160,
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                    child: Text(
-                      '对话记录（${_messages.length}条）',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.bold,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: AppTheme.ink,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppTheme.borderStrong),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '面对面说话，App 负责转译与朗读。',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
+                        ),
                       ),
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      itemCount: _messages.length,
-                      itemBuilder: (_, i) => _buildMessageTile(_messages[i]),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ─── 说话面板 ──────────────────────────────────────────
-  Widget _buildSpeakerPanel({
-    required bool isChinese,
-    required bool isListening,
-    required Color color,
-    required String icon,
-    required String label,
-    required String sublabel,
-  }) {
-    return Container(
-      width: double.infinity,
-      color: color,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(icon, style: const TextStyle(fontSize: 32)),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF677D6A),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // PTT 按钮
-          GestureDetector(
-            onTapDown: (_) => _sttAvailable
-                ? _startListening(isChinese)
-                : _manualInput(isChinese),
-            onTapUp: (_) {
-              if (_sttAvailable && isListening) {
-                _stopAndTranslate(isChinese);
-              }
-            },
-            onTapCancel: () {
-              if (isListening) SpeechService.cancelListening();
-              if (mounted) {
-                setState(() {
-                  _isListeningZh = false;
-                  _isListeningVi = false;
-                });
-              }
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: isListening ? 80 : 68,
-              height: isListening ? 80 : 68,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isListening
-                    ? const Color(0xFFE57373)
-                    : const Color(0xFF677D6A),
-                boxShadow: [
-                  BoxShadow(
-                    color: (isListening
-                            ? const Color(0xFFE57373)
-                            : const Color(0xFF677D6A))
-                        .withValues(alpha: 0.35),
-                    blurRadius: isListening ? 20 : 10,
-                    spreadRadius: isListening ? 4 : 0,
-                  ),
-                ],
-              ),
-              child: Icon(
-                isListening ? Icons.mic : (_sttAvailable ? Icons.mic_none : Icons.keyboard),
-                color: Colors.white,
-                size: 32,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            isListening ? '松开完成 →' : sublabel,
-            style: TextStyle(
-              fontSize: 12,
-              color: isListening ? const Color(0xFFE57373) : Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageTile(_ConvMessage msg) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            msg.isChinese ? '🇨🇳' : '🇻🇳',
-            style: const TextStyle(fontSize: 14),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  msg.original,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
+                      const SizedBox(height: 8),
+                      Text(
+                        _liveText.isEmpty
+                            ? '按住按钮说话，松开后自动翻译。语音不可用时可直接手动输入。'
+                            : '识别中: $_liveText',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  msg.translated,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF333333),
-                    fontWeight: FontWeight.w500,
+              ),
+              Expanded(
+                child: _messages.isEmpty
+                    ? const _ConversationEmptyState()
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) {
+                          return _ConversationCard(entry: _messages[index]);
+                        },
+                      ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _ActionPad(
+                          title: '中文说话方',
+                          subtitle: _speechAvailable ? '按住说中文' : '手动输入中文',
+                          accent: AppTheme.accent,
+                          active: _isListeningChinese,
+                          icon: _speechAvailable ? Icons.mic_rounded : Icons.keyboard_rounded,
+                          onTapDown: (_) {
+                            if (_speechAvailable) {
+                              _startListening(true);
+                            } else {
+                              _manualInput(true);
+                            }
+                          },
+                          onTapUp: (_) {
+                            if (_speechAvailable && _isListeningChinese) {
+                              _finishListening(true);
+                            }
+                          },
+                          onTapCancel: () async {
+                            if (_isListeningChinese) {
+                              await SpeechService.cancelListening();
+                              if (mounted) {
+                                setState(() => _isListeningChinese = false);
+                              }
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ActionPad(
+                          title: '越南语说话方',
+                          subtitle: _speechAvailable ? '按住说越南语' : '手动输入越南语',
+                          accent: AppTheme.cyan,
+                          active: _isListeningVietnamese,
+                          icon: _speechAvailable ? Icons.record_voice_over_rounded : Icons.keyboard_rounded,
+                          onTapDown: (_) {
+                            if (_speechAvailable) {
+                              _startListening(false);
+                            } else {
+                              _manualInput(false);
+                            }
+                          },
+                          onTapUp: (_) {
+                            if (_speechAvailable && _isListeningVietnamese) {
+                              _finishListening(false);
+                            }
+                          },
+                          onTapCancel: () async {
+                            if (_isListeningVietnamese) {
+                              await SpeechService.cancelListening();
+                              if (mounted) {
+                                setState(() => _isListeningVietnamese = false);
+                              }
+                            }
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -402,16 +314,212 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 }
 
-class _ConvMessage {
+class _ActionPad extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final bool active;
+  final IconData icon;
+  final GestureTapDownCallback onTapDown;
+  final GestureTapUpCallback onTapUp;
+  final VoidCallback onTapCancel;
+
+  const _ActionPad({
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.active,
+    required this.icon,
+    required this.onTapDown,
+    required this.onTapUp,
+    required this.onTapCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: onTapDown,
+      onTapUp: onTapUp,
+      onTapCancel: onTapCancel,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: active ? accent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: active ? accent : AppTheme.borderMuted, width: active ? 1.4 : 1),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.2),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                color: active ? accent : AppTheme.ink,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: Colors.white, size: 28),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              active ? '松手翻译' : subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: active ? accent : AppTheme.inkMuted,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationCard extends StatelessWidget {
+  final _ConversationEntry entry;
+
+  const _ConversationCard({
+    required this.entry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: entry.chineseSource
+                        ? AppTheme.accentSoft.withValues(alpha: 0.24)
+                        : AppTheme.cyan.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    entry.chineseSource ? '中文 -> 越南语' : '越南语 -> 中文',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: entry.chineseSource ? AppTheme.accent : AppTheme.cyan,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  entry.sourceLabel,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppTheme.inkMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              entry.original,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.inkMuted,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              entry.translated,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.ink,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationEmptyState extends StatelessWidget {
+  const _ConversationEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              children: const [
+                Icon(Icons.multitrack_audio_rounded, size: 44, color: AppTheme.inkMuted),
+                SizedBox(height: 14),
+                Text(
+                  '这里会按时间倒序保存刚刚的对话。',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.ink,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  '先试着按住中文或越南语按钮说一句话，系统会自动翻译并朗读给对方听。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.inkMuted,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConversationEntry {
   final String original;
   final String translated;
-  final bool isChinese;
+  final bool chineseSource;
   final String sourceLabel;
 
-  _ConvMessage({
+  const _ConversationEntry({
     required this.original,
     required this.translated,
-    required this.isChinese,
+    required this.chineseSource,
     required this.sourceLabel,
   });
 }

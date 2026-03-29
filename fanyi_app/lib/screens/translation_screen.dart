@@ -1,16 +1,11 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../services/translation_service.dart';
 import '../services/tts_service.dart';
+import '../ui/app_theme.dart';
+import 'keyboard_helper_screen.dart';
 
-/// 即时翻译页面
-///
-/// 功能说明：
-///   1. 自动检测输入语言（中文 ↔ 越南语），无需手动切换
-///   2. 优先查本地词典（离线、毫秒级），查不到时自动调在线 API
-///   3. 右上角语音朗读按钮（调用手机系统 TTS）
-///   4. 长按译文可复制到剪贴板
-///   5. 显示翻译来源标签，让用户清楚知道结果从哪里来
 class TranslationScreen extends StatefulWidget {
   const TranslationScreen({super.key});
 
@@ -19,405 +14,522 @@ class TranslationScreen extends StatefulWidget {
 }
 
 class _TranslationScreenState extends State<TranslationScreen> {
-  final TextEditingController _inputCtrl = TextEditingController();
+  final TextEditingController _inputController = TextEditingController();
   TranslationResult? _result;
   bool _isLoading = false;
   bool _isSpeaking = false;
-
-  // 防抖计时器：用户停止输入 600ms 后才触发翻译，避免每按一个键都请求 API
   DateTime _lastInput = DateTime.now();
 
   @override
   void dispose() {
-    _inputCtrl.dispose();
+    _inputController.dispose();
     TtsService.stop();
     super.dispose();
   }
 
-  // ─── 翻译逻辑 ─────────────────────────────────────────
-  Future<void> _onTextChanged(String text) async {
+  Future<void> _translateText(String text) async {
     if (text.trim().isEmpty) {
-      setState(() => _result = null);
+      setState(() {
+        _result = null;
+        _isLoading = false;
+      });
       return;
     }
 
     _lastInput = DateTime.now();
-    final capturedTime = _lastInput;
+    final currentToken = _lastInput;
 
     setState(() => _isLoading = true);
-
-    // 等待 600ms 防抖
-    await Future.delayed(const Duration(milliseconds: 600));
-
-    // 如果在等待期间用户又输入了新内容，就放弃这次请求
-    if (capturedTime != _lastInput) return;
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (currentToken != _lastInput) return;
 
     final result = await TranslationService.translate(text);
+    if (!mounted) return;
 
-    if (mounted) {
-      setState(() {
-        _result = result;
-        _isLoading = false;
-      });
-    }
+    setState(() {
+      _result = result;
+      _isLoading = false;
+    });
   }
 
-  // ─── 朗读译文 ─────────────────────────────────────────
-  Future<void> _speak() async {
+  Future<void> _speakResult() async {
     if (_result == null || !_result!.hasResult) return;
     setState(() => _isSpeaking = true);
-
-    // 判断译文是越南语还是中文
-    final isVi = _result!.direction == TranslationService.zhToVi;
+    final isVietnamese = _result!.direction == TranslationService.zhToVi;
     final success = await TtsService.speak(
       _result!.translated,
-      isVietnamese: isVi,
+      isVietnamese: isVietnamese,
     );
 
-    if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('当前设备未安装越南语语音包，请在手机设置中下载。'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    if (mounted) {
+      setState(() => _isSpeaking = false);
+      if (!success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('当前设备未安装可用的越南语语音包。')),
+        );
+      }
     }
-    if (mounted) setState(() => _isSpeaking = false);
   }
 
-  // ─── 复制译文 ─────────────────────────────────────────
   void _copyResult() {
-    if (_result == null) return;
+    if (_result == null || !_result!.hasResult) return;
     Clipboard.setData(ClipboardData(text: _result!.translated));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('✅ 译文已复制到剪贴板'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 1),
-      ),
+      const SnackBar(content: Text('已复制译文到剪贴板。')),
     );
   }
 
-  // ─── 界面构建 ─────────────────────────────────────────
+  void _openKeyboardHelper() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const KeyboardHelperScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final detectedLanguage = TranslationService.detectLanguage(
+      _inputController.text,
+    );
+    final directionLabel = detectedLanguage == 'zh' ? '中文 -> 越南语' : '越南语 -> 中文';
+
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFBF5),
       appBar: AppBar(
-        title: const Text(
-          '翻译通',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
-            color: Color(0xFF677D6A),
-          ),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          // 朗读按钮
-          IconButton(
-            icon: Icon(
-              _isSpeaking ? Icons.volume_up : Icons.volume_up_outlined,
-              color: _isSpeaking
-                  ? const Color(0xFF677D6A)
-                  : Colors.grey.shade400,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Translate',
+              style: TextStyle(fontSize: 11, letterSpacing: 1.1, color: AppTheme.inkMuted),
             ),
-            onPressed: _speak,
+            Text('翻译首页'),
+          ],
+        ),
+        actions: [
+          IconButton(
+            onPressed: _openKeyboardHelper,
+            icon: const Icon(Icons.keyboard_command_key_rounded),
+            tooltip: '聊天键盘助手',
+          ),
+          IconButton(
+            onPressed: _speakResult,
+            icon: Icon(
+              _isSpeaking ? Icons.graphic_eq_rounded : Icons.volume_up_rounded,
+            ),
             tooltip: '朗读译文',
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 语言方向提示
-            _buildDirectionHint(),
-            const SizedBox(height: 12),
-            // 输入框
-            _buildInputArea(),
-            const SizedBox(height: 16),
-            // 翻译结果
-            _buildResultArea(),
-            // 来源标签 + 汉越词提示
-            if (_result != null && _result!.hasResult) ...[
-              const SizedBox(height: 10),
-              _buildSourceBadge(),
-            ],
-            // 俚语详解卡片
-            if (_result != null && _result!.isSlang) ...[
-              const SizedBox(height: 10),
-              _buildSlangCard(),
-            ],
-            // 汉越字根提示
-            if (_result != null && _result!.hanZi != null) ...[
-              const SizedBox(height: 10),
-              _buildHanZiTip(),
-            ],
-            const SizedBox(height: 30),
-            // 底部快捷按钮
-            _buildShortcutRow(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDirectionHint() {
-    final lang = TranslationService.detectLanguage(_inputCtrl.text);
-    final hint = lang == 'zh' ? '中文 → 越南语' : '越南语 → 中文';
-    final icon = lang == 'zh' ? '🇨🇳→🇻🇳' : '🇻🇳→🇨🇳';
-    return Row(
-      children: [
-        Text(icon, style: const TextStyle(fontSize: 18)),
-        const SizedBox(width: 8),
-        Text(
-          hint,
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF677D6A),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const Spacer(),
-        const Text(
-          '自动检测语言',
-          style: TextStyle(fontSize: 11, color: Colors.grey),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInputArea() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: TextField(
-        controller: _inputCtrl,
-        maxLines: 5,
-        onChanged: _onTextChanged,
-        style: const TextStyle(fontSize: 16, color: Color(0xFF333333)),
-        decoration: InputDecoration(
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.all(20),
-          hintText: '输入中文或越南语，自动识别并翻译...',
-          hintStyle: TextStyle(color: Colors.grey.shade300, fontSize: 14),
-          suffixIcon: _inputCtrl.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, color: Colors.grey),
-                  onPressed: () {
-                    _inputCtrl.clear();
-                    setState(() => _result = null);
-                  },
-                )
-              : null,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildResultArea() {
-    return GestureDetector(
-      onLongPress: _copyResult, // 长按复制
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF7EFE5),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Text(
-                  '译文',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: AppThemeShell()),
+          ListView(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+            children: [
+              ModemStatusBar(
+                pills: [
+                  const StatusPillData('MODEM READY', AppTheme.accentSoft),
+                  StatusPillData(directionLabel.toUpperCase(), AppTheme.cyan),
+                  StatusPillData(
+                    _result?.isOnline == true ? 'ONLINE' : 'OFFLINE FIRST',
+                    _result?.isOnline == true ? AppTheme.amber : AppTheme.success,
                   ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppTheme.ink,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: AppTheme.borderStrong),
                 ),
-                const Spacer(),
-                if (_result != null && _result!.hasResult)
-                  GestureDetector(
-                    onTap: _copyResult,
-                    child: const Icon(
-                      Icons.copy,
-                      size: 16,
-                      color: Colors.grey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'TEXT / OCR / CHAT INSERT',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                        letterSpacing: 1.1,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            if (_isLoading)
-              const SizedBox(
-                height: 24,
-                width: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Color(0xFF677D6A),
-                ),
-              )
-            else
-              Text(
-                _result?.hasResult == true
-                    ? _result!.translated
-                    : '在上方输入文字，翻译结果将显示在这里。',
-                style: TextStyle(
-                  fontSize: _result?.hasResult == true ? 22 : 14,
-                  fontWeight: _result?.hasResult == true
-                      ? FontWeight.bold
-                      : FontWeight.normal,
-                  color: _result?.hasResult == true
-                      ? const Color(0xFF333333)
-                      : Colors.grey,
-                  height: 1.5,
+                    SizedBox(height: 10),
+                    Text(
+                      '简单、快、可学习的中越翻译。',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      '像翻译工具一样直接，像学习产品一样能沉淀词汇，还能衔接聊天键盘。',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.edit_note_rounded, color: AppTheme.accent),
+                          const SizedBox(width: 8),
+                          Text(
+                            '输入区',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppTheme.panelStrong,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              directionLabel,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.ink,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _inputController,
+                        minLines: 4,
+                        maxLines: 7,
+                        onChanged: (text) {
+                          setState(() {});
+                          _translateText(text);
+                        },
+                        decoration: InputDecoration(
+                          hintText: '输入中文或越南语，结果会自动出现。',
+                          suffixIcon: _inputController.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    _inputController.clear();
+                                    setState(() {
+                                      _result = null;
+                                      _isLoading = false;
+                                    });
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _QuickButton(
+                            label: '粘贴',
+                            icon: Icons.content_paste_rounded,
+                            onTap: () async {
+                              final data = await Clipboard.getData('text/plain');
+                              final text = data?.text ?? '';
+                              _inputController.text = text;
+                              setState(() {});
+                              _translateText(text);
+                            },
+                          ),
+                          _QuickButton(
+                            label: '聊天键盘',
+                            icon: Icons.keyboard_command_key_rounded,
+                            onTap: _openKeyboardHelper,
+                          ),
+                          _QuickButton(
+                            label: '复制译文',
+                            icon: Icons.copy_rounded,
+                            onTap: _copyResult,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.memory_rounded, color: AppTheme.cyan),
+                          const SizedBox(width: 8),
+                          Text(
+                            '结果区',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const Spacer(),
+                          if (_result != null && _result!.sourceLabel.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppTheme.panelStrong,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                _result!.sourceLabel,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: AppTheme.ink,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      if (_isLoading)
+                        const LinearProgressIndicator(
+                          color: AppTheme.accent,
+                          backgroundColor: AppTheme.panelStrong,
+                        )
+                      else
+                        Text(
+                          _result?.hasResult == true
+                              ? _result!.translated
+                              : '译文会显示在这里。推荐把高频句子收藏到学习页，再通过聊天键盘插入到 Zalo。',
+                          style: TextStyle(
+                            fontSize: _result?.hasResult == true ? 24 : 14,
+                            height: 1.45,
+                            fontWeight: _result?.hasResult == true
+                                ? FontWeight.w800
+                                : FontWeight.w500,
+                            color: _result?.hasResult == true
+                                ? AppTheme.ink
+                                : AppTheme.inkMuted,
+                          ),
+                        ),
+                      if (_result?.normalized != null) ...[
+                        const SizedBox(height: 12),
+                        _InfoStrip(
+                          icon: Icons.auto_fix_high_rounded,
+                          title: '规范化输入',
+                          body: _result!.normalized!,
+                        ),
+                      ],
+                      if (_result?.hanZi != null) ...[
+                        const SizedBox(height: 12),
+                        _InfoStrip(
+                          icon: Icons.auto_stories_rounded,
+                          title: '汉越词根',
+                          body: '这个结果和“${_result!.hanZi}”有关，适合顺手加入学习页。',
+                        ),
+                      ],
+                      if (_result?.explanation != null) ...[
+                        const SizedBox(height: 12),
+                        _InfoStrip(
+                          icon: Icons.bolt_rounded,
+                          title: '口语说明',
+                          body: _result!.explanation!,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _FeatureCard(
+                      icon: Icons.translate_rounded,
+                      title: '结果即学习',
+                      body: '高频表达、俚语、汉越词根直接在结果页展开。',
+                      color: AppTheme.accent,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _FeatureCard(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      title: '聊天辅助',
+                      body: '后续从这里直连自定义输入法和截图 OCR。',
+                      color: AppTheme.amber,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _QuickButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.panelStrong,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppTheme.borderMuted),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: AppTheme.ink),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildSourceBadge() {
-    final isOnline = _result!.isOnline;
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: isOnline
-                ? const Color(0xFFE3F2FD)
-                : const Color(0xFFE7F0DC),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            _result!.sourceLabel,
-            style: TextStyle(
-              fontSize: 11,
-              color: isOnline
-                  ? Colors.blue.shade700
-                  : const Color(0xFF677D6A),
-            ),
-          ),
-        ),
-        // 如果 Teencode 被规范化，显示提示
-        if (_result!.normalized != null) ...[
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '已还原缩写：${_result!.normalized}',
-              style: const TextStyle(fontSize: 11, color: Colors.orange),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
+class _InfoStrip extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
 
-  Widget _buildSlangCard() {
+  const _InfoStrip({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
+        color: AppTheme.panelStrong.withValues(alpha: 0.64),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFFCC80), width: 1),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('💬', style: TextStyle(fontSize: 18)),
+          Icon(icon, size: 18, color: AppTheme.accent),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              _result!.explanation ?? '',
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF5D4037),
-                height: 1.5,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  body,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.inkMuted,
+                    height: 1.45,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildHanZiTip() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          const Text('🈶', style: TextStyle(fontSize: 18)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '汉越词提示：这个词源自汉字「${_result!.hanZi}」，用中文直觉就能记住发音！',
+class _FeatureCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+  final Color color;
+
+  const _FeatureCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              body,
               style: const TextStyle(
                 fontSize: 12,
-                color: Color(0xFF2E7D32),
-                height: 1.5,
+                color: AppTheme.inkMuted,
+                height: 1.45,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildShortcutRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _shortcutItem(Icons.history, '历史记录', () {}),
-        _shortcutItem(Icons.collections_bookmark, '生词本', () {}),
-        _shortcutItem(Icons.quiz, '每日一句', () {}),
-      ],
-    );
-  }
-
-  Widget _shortcutItem(IconData icon, String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: const Color(0xFFD2B48C), size: 26),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

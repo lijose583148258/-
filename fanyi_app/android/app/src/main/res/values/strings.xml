@@ -1,0 +1,6 @@
+﻿<resources>
+    <string name="app_name">FanyiTong</string>
+    <string name="ime_name">FanyiTong Keyboard</string>
+    <string name="ime_subtype_name">Chinese to Vietnamese</string>
+    <string name="ime_empty_preview">No translation yet</string>
+</resources>
