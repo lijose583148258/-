@@ -155,13 +155,13 @@ class _LearnHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
+    return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
+          children: [
+            const Text(
               'Turn translation into language memory.',
               style: TextStyle(
                 fontSize: 22,
@@ -170,8 +170,8 @@ class _LearnHeroCard extends StatelessWidget {
                 height: 1.2,
               ),
             ),
-            SizedBox(height: 10),
-            Text(
+            const SizedBox(height: 10),
+            const Text(
               'This page combines dictionary entries, slang, Han-Viet roots, and the chat keyboard helper into one practical study flow.',
               style: TextStyle(
                 fontSize: 13,
@@ -203,13 +203,13 @@ class _QuickModules extends StatelessWidget {
         color: AppTheme.accent,
         onTap: onKeyboardTap,
       ),
-      _ModuleData(
+      const _ModuleData(
         title: 'Han-Viet Roots',
         subtitle: 'Learn faster',
         icon: Icons.auto_stories_rounded,
         color: AppTheme.cyan,
       ),
-      _ModuleData(
+      const _ModuleData(
         title: 'Daily Slang',
         subtitle: 'Sound more natural',
         icon: Icons.bolt_rounded,
@@ -446,14 +446,14 @@ class _EmptyLearnState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
+    return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          children: const [
-            Icon(Icons.search_off_rounded, size: 38, color: AppTheme.inkMuted),
-            SizedBox(height: 12),
-            Text(
+          children: [
+            const Icon(Icons.search_off_rounded, size: 38, color: AppTheme.inkMuted),
+            const SizedBox(height: 12),
+            const Text(
               'Nothing matched this search yet.',
               style: TextStyle(
                 fontSize: 14,
@@ -461,8 +461,8 @@ class _EmptyLearnState extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            SizedBox(height: 6),
-            Text(
+            const SizedBox(height: 6),
+            const Text(
               'Try a simpler word, a Han-Viet root, or a slang phrase.',
               style: TextStyle(
                 fontSize: 12,

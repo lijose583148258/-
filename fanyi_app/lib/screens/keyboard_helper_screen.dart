@@ -374,13 +374,13 @@ class _NotesPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
+    return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
+          children: [
+            const Text(
               'Scope for this version',
               style: TextStyle(
                 fontSize: 18,
@@ -388,8 +388,8 @@ class _NotesPanel extends StatelessWidget {
                 color: AppTheme.ink,
               ),
             ),
-            SizedBox(height: 12),
-            Text(
+            const SizedBox(height: 12),
+            const Text(
               'This route is safer than automatic sending. The goal of the keyboard is translate-and-insert, not controlling the send action inside a chat app.',
               style: TextStyle(
                 fontSize: 13,
@@ -397,8 +397,8 @@ class _NotesPanel extends StatelessWidget {
                 height: 1.5,
               ),
             ),
-            SizedBox(height: 8),
-            Text(
+            const SizedBox(height: 8),
+            const Text(
               'Next upgrades can include tone presets, better candidate phrasing, and scenario-based message snippets.',
               style: TextStyle(
                 fontSize: 13,

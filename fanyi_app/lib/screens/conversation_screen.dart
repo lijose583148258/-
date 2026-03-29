@@ -149,14 +149,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
+          children: [
+            const Text(
               'DUAL TALK',
               style: TextStyle(fontSize: 11, letterSpacing: 1.1, color: AppTheme.inkMuted),
             ),
-            Text('对话翻译'),
+            const Text('对话翻译'),
           ],
         ),
         actions: [
@@ -473,17 +473,17 @@ class _ConversationEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ListView(
+    return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      children: const [
+      children: [
         Card(
           child: Padding(
             padding: const EdgeInsets.all(22),
             child: Column(
-              children: const [
-                Icon(Icons.multitrack_audio_rounded, size: 44, color: AppTheme.inkMuted),
-                SizedBox(height: 14),
-                Text(
+              children: [
+                const Icon(Icons.multitrack_audio_rounded, size: 44, color: AppTheme.inkMuted),
+                const SizedBox(height: 14),
+                const Text(
                   '这里会按时间倒序保存刚刚的对话。',
                   style: TextStyle(
                     fontSize: 16,
@@ -491,8 +491,8 @@ class _ConversationEmptyState extends StatelessWidget {
                     color: AppTheme.ink,
                   ),
                 ),
-                SizedBox(height: 8),
-                Text(
+                const SizedBox(height: 8),
+                const Text(
                   '先试着按住中文或越南语按钮说一句话，系统会自动翻译并朗读给对方听。',
                   textAlign: TextAlign.center,
                   style: TextStyle(

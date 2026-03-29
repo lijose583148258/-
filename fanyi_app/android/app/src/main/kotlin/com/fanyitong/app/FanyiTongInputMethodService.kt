@@ -13,10 +13,16 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.LinkedHashMap
 import kotlin.concurrent.thread
 
 class FanyiTongInputMethodService : InputMethodService() {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val translationCache = object : LinkedHashMap<String, String>(20, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
+            return size > 20
+        }
+    }
 
     private lateinit var statusView: TextView
     private lateinit var previewView: TextView
@@ -48,6 +54,7 @@ class FanyiTongInputMethodService : InputMethodService() {
         directionButton.setOnClickListener {
             zhToVi = !zhToVi
             updateDirectionButton()
+            setStatus(if (zhToVi) "Direction set to ZH -> VI." else "Direction set to VI -> ZH.")
         }
 
         updateDirectionButton()
@@ -106,12 +113,28 @@ class FanyiTongInputMethodService : InputMethodService() {
     }
 
     private fun translateAndInsert(text: String) {
+        val cacheKey = cacheKey(text)
+        val cached = getCachedTranslation(cacheKey)
+        if (cached != null) {
+            lastTranslated = cached
+            previewView.text = cached
+            val connection = currentInputConnection
+            if (connection == null) {
+                setStatus("Translation ready, but input field is unavailable.")
+                return
+            }
+            connection.commitText(cached, 1)
+            setStatus("Inserted cached translation.")
+            return
+        }
+
         setStatus("Translating...")
         previewView.text = text
 
         thread {
             try {
                 val translated = requestTranslation(text)
+                storeCachedTranslation(cacheKey, translated)
                 mainHandler.post {
                     lastTranslated = translated
                     previewView.text = translated
@@ -153,6 +176,22 @@ class FanyiTongInputMethodService : InputMethodService() {
                 throw IllegalStateException("Translation failed")
             }
             translated
+        }
+    }
+
+    private fun cacheKey(text: String): String {
+        return "${if (zhToVi) "zh->vi" else "vi->zh"}|${text.trim()}"
+    }
+
+    private fun getCachedTranslation(key: String): String? {
+        synchronized(translationCache) {
+            return translationCache[key]
+        }
+    }
+
+    private fun storeCachedTranslation(key: String, value: String) {
+        synchronized(translationCache) {
+            translationCache[key] = value
         }
     }
 

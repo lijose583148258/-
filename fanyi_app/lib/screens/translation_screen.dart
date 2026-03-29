@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/translation_service.dart';
@@ -15,20 +17,25 @@ class TranslationScreen extends StatefulWidget {
 
 class _TranslationScreenState extends State<TranslationScreen> {
   final TextEditingController _inputController = TextEditingController();
+  Timer? _debounceTimer;
+  int _translationEpoch = 0;
   TranslationResult? _result;
   bool _isLoading = false;
   bool _isSpeaking = false;
-  DateTime _lastInput = DateTime.now();
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _inputController.dispose();
     TtsService.stop();
     super.dispose();
   }
 
-  Future<void> _translateText(String text) async {
+  void _translateText(String text) {
+    _debounceTimer?.cancel();
+
     if (text.trim().isEmpty) {
+      _translationEpoch++;
       setState(() {
         _result = null;
         _isLoading = false;
@@ -36,19 +43,25 @@ class _TranslationScreenState extends State<TranslationScreen> {
       return;
     }
 
-    _lastInput = DateTime.now();
-    final currentToken = _lastInput;
+    final currentEpoch = ++_translationEpoch;
 
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (currentToken != _lastInput) return;
+    _debounceTimer = Timer(const Duration(milliseconds: 450), () async {
+      try {
+        final result = await TranslationService.translate(text);
+        if (!mounted || currentEpoch != _translationEpoch) return;
 
-    final result = await TranslationService.translate(text);
-    if (!mounted) return;
-
-    setState(() {
-      _result = result;
-      _isLoading = false;
+        setState(() {
+          _result = result;
+          _isLoading = false;
+        });
+      } catch (_) {
+        if (!mounted || currentEpoch != _translationEpoch) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('翻译暂时失败，稍后再试。')),
+        );
+      }
     });
   }
 
@@ -95,14 +108,14 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
+          children: [
+            const Text(
               'Translate',
               style: TextStyle(fontSize: 11, letterSpacing: 1.1, color: AppTheme.inkMuted),
             ),
-            Text('翻译首页'),
+            const Text('翻译首页'),
           ],
         ),
         actions: [
@@ -144,10 +157,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                   borderRadius: BorderRadius.circular(22),
                   border: Border.all(color: AppTheme.borderStrong),
                 ),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
+                  children: [
+                    const Text(
                       'TEXT / OCR / CHAT INSERT',
                       style: TextStyle(
                         color: Colors.white70,
@@ -156,8 +169,8 @@ class _TranslationScreenState extends State<TranslationScreen> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    SizedBox(height: 10),
-                    Text(
+                    const SizedBox(height: 10),
+                    const Text(
                       '简单、快、可学习的中越翻译。',
                       style: TextStyle(
                         color: Colors.white,
@@ -166,8 +179,8 @@ class _TranslationScreenState extends State<TranslationScreen> {
                         height: 1.2,
                       ),
                     ),
-                    SizedBox(height: 8),
-                    Text(
+                    const SizedBox(height: 8),
+                    const Text(
                       '像翻译工具一样直接，像学习产品一样能沉淀词汇，还能衔接聊天键盘。',
                       style: TextStyle(
                         color: Colors.white70,
@@ -227,10 +240,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                               : IconButton(
                                   onPressed: () {
                                     _inputController.clear();
-                                    setState(() {
-                                      _result = null;
-                                      _isLoading = false;
-                                    });
+                                    _translateText('');
                                   },
                                   icon: const Icon(Icons.close_rounded),
                                 ),
@@ -353,9 +363,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
+              const Row(
+                children: const [
+                  const Expanded(
                     child: _FeatureCard(
                       icon: Icons.translate_rounded,
                       title: '结果即学习',
@@ -364,7 +374,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Expanded(
+                  const Expanded(
                     child: _FeatureCard(
                       icon: Icons.chat_bubble_outline_rounded,
                       title: '聊天辅助',
