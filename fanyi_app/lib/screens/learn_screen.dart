@@ -135,9 +135,7 @@ class _LearnScreenState extends State<LearnScreen> {
               else if (_filteredResults.isEmpty)
                 const _EmptyLearnState()
               else
-                ..._filteredResults
-                    .map((item) => _LearnResultCard(item: item))
-                    .toList(),
+                ..._filteredResults.map((item) => _LearnResultCard(item: item)),
             ],
           ),
         ],
@@ -157,7 +155,7 @@ class _LearnHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return const Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
@@ -448,7 +446,7 @@ class _EmptyLearnState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return const Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(

@@ -95,7 +95,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
+        title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
             Text(
@@ -144,7 +144,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                   borderRadius: BorderRadius.circular(22),
                   border: Border.all(color: AppTheme.borderStrong),
                 ),
-                child: Column(
+                child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
                     Text(

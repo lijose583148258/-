@@ -374,7 +374,7 @@ class _NotesPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return const Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(

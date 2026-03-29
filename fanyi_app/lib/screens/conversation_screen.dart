@@ -149,7 +149,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
+        title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
             Text(
@@ -473,9 +473,9 @@ class _ConversationEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
+    return const ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      children: [
+      children: const [
         Card(
           child: Padding(
             padding: const EdgeInsets.all(22),
