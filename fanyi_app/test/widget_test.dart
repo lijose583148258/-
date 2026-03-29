@@ -10,6 +10,9 @@ void main() {
 
     expect(find.byType(FanyiTongApp), findsOneWidget);
     expect(find.byType(MainLayout), findsOneWidget);
-    expect(find.byType(BottomNavigationBar), findsOneWidget);
+    expect(find.text('翻译'), findsOneWidget);
+    expect(find.text('对话'), findsOneWidget);
+    expect(find.text('学习'), findsOneWidget);
+    expect(find.text('拍照'), findsOneWidget);
   });
 }
