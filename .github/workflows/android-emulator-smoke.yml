@@ -42,13 +42,7 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          script: |
-            cd fanyi_app
-            adb devices
-            flutter devices
-            DEVICE_ID="$(adb devices | sed -n '2p' | awk '{print $1}')"
-            echo "Using device: ${DEVICE_ID}"
-            flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d "${DEVICE_ID}"
+          script: cd fanyi_app && adb devices && flutter devices && flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554
 
       - name: Upload emulator screenshots
         if: always()
