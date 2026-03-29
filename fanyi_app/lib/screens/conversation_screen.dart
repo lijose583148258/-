@@ -337,7 +337,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     color: (isListening
                             ? const Color(0xFFE57373)
                             : const Color(0xFF677D6A))
-                        .withOpacity(0.35),
+                        .withValues(alpha: 0.35),
                     blurRadius: isListening ? 20 : 10,
                     spreadRadius: isListening ? 4 : 0,
                   ),

@@ -133,7 +133,9 @@ class TranslationService {
     if (response.statusCode == 200) {
       final data = json.decode(utf8.decode(response.bodyBytes));
       final translated = data['responseData']?['translatedText'] as String?;
-      if (translated != null && translated.isNotEmpty) return translated;
+      if (translated != null && translated.isNotEmpty) {
+        return translated;
+      }
     }
     throw Exception('MyMemory 返回无效结果');
   }

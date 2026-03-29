@@ -38,7 +38,7 @@ class CameraScreen extends StatelessWidget {
               // 图标
               Container(
                 padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: const Color(0xFFE7F0DC),
                   shape: BoxShape.circle,
                 ),
