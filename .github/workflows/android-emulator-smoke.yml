@@ -1,0 +1,52 @@
+name: Android Emulator Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  emulator-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Bootstrap platform files
+        working-directory: fanyi_app
+        run: flutter create --org com.fanyitong --project-name fanyi_tong --platforms=android .
+
+      - name: Install dependencies
+        working-directory: fanyi_app
+        run: flutter pub get
+
+      - name: Run integration smoke test on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          script: |
+            cd fanyi_app
+            adb devices
+            flutter devices
+            DEVICE_ID="$(adb devices | sed -n '2p' | awk '{print $1}')"
+            echo "Using device: ${DEVICE_ID}"
+            flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d "${DEVICE_ID}"
+
