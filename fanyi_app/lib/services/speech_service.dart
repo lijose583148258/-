@@ -71,7 +71,7 @@ class SpeechService {
       localeId: localeId,
       listenFor: const Duration(seconds: 30),  // 最长监听 30 秒
       pauseFor: const Duration(seconds: 3),    // 3 秒无声音自动结束
-      options: SpeechListenOptions(
+      listenOptions: SpeechListenOptions(
         partialResults: true, // 实时返回中间结果（显示更流畅）
         cancelOnError: true,
       ),

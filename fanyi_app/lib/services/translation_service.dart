@@ -43,7 +43,9 @@ class TranslationService {
     if (RegExp(
       r'[àáạảãăắặẳẵấầậẩẫđèéẹẻẽêếềệểễìíịỉĩòóọỏõôốồộổỗơớờợởỡùúụủũưứừựửữỳýỵỷỹ]',
       caseSensitive: false,
-    ).hasMatch(text)) return 'vi';
+    ).hasMatch(text)) {
+      return 'vi';
+    }
     return 'vi';
   }
 
