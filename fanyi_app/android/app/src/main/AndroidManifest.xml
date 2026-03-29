@@ -1,0 +1,51 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 联网权限：调用 MyMemory 在线翻译 API -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- 麦克风权限：语音识别（面对面对话翻译功能） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
+    <!-- 振动权限：按住麦克风按钮时轻微震动反馈（可选） -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <!-- 声明麦克风为可选硬件（没有麦克风的设备也能安装，只是语音功能禁用） -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
+
+    <application
+        android:label="翻译通"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true">
+
+        <!-- usesCleartextTraffic="true"：允许 HTTP 请求（MyMemory API 使用 HTTPS，
+             此项主要为了兼容部分老版本安卓系统） -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"/>
+
+            <!-- 设置为启动页（点击桌面图标时打开此 Activity） -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- 不使用 Google Play 服务，删除相关 meta-data 确保中国手机兼容 -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+    </application>
+</manifest>

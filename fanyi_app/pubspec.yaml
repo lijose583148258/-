@@ -1,0 +1,48 @@
+name: fanyi_tong
+description: 翻译通 - 中越翻译学习App，完全离线可用，无需服务器，兼容所有中国国内安卓手机。
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── 本地数据库 ─────────────────────────────────────
+  # sqflite: Android 原生 SQLite，不依赖 Google Play 服务
+  sqflite: ^2.3.2
+  path_provider: ^2.1.2   # 获取手机可写目录
+  path: ^1.9.0             # 路径拼接工具
+
+  # ── Google ML Kit 翻译（境外/有 Google Play 服务时自动启用）──
+  # 当手机上有 Google Play 服务时（三星/索尼/摩托罗拉/出国后的国际版手机），
+  # 自动使用 ML Kit 的神经机器翻译模型（质量等同谷歌翻译网页版，完全离线）。
+  # 在中国华为/小米等无 Google Play 服务的手机上，初始化时会抛出异常，
+  # 我们捕获异常后自动降级到 MyMemory API，用户完全无感知。
+  google_mlkit_translation: ^0.10.0
+
+  # ── 网络（在线翻译兜底）──────────────────────────────
+  # http: 纯 Dart HTTP，不依赖任何平台服务
+  http: ^1.2.1
+
+  # ── 语音功能（调用手机系统引擎，不依赖 Google）────────
+  # flutter_tts: 调用 Android TextToSpeech API（华为/小米/OPPO 均支持）
+  flutter_tts: ^4.0.2
+  # speech_to_text: 调用 Android SpeechRecognizer（各厂商自带语音引擎）
+  speech_to_text: ^6.6.2
+
+  # ── 权限管理 ──────────────────────────────────────
+  # 运行时申请麦克风权限，兼容 Android 6.0+
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    # 36KB 的本地词典，打包进 APK，无需网络即可查询
+    - assets/dictionary.db
