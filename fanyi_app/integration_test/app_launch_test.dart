@@ -1,4 +1,5 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:fanyi_tong/main.dart' as app;
 
@@ -12,7 +13,7 @@ void main() {
 
     expect(find.byType(app.FanyiTongApp), findsOneWidget);
     expect(find.byType(app.MainLayout), findsOneWidget);
-    expect(find.byType(app.BottomNavigationBar), findsOneWidget);
+    expect(find.byType(BottomNavigationBar), findsOneWidget);
 
     await binding.takeScreenshot('home');
   });
