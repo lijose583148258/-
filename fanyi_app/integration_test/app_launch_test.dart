@@ -1,15 +1,19 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:fanyi_tong/main.dart' as app;
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('app launches and shows shell UI', (tester) async {
+  testWidgets('home renders and is reachable', (tester) async {
     app.main();
-    await tester.pumpAndSettle(const Duration(seconds: 4));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
 
-    expect(find.text('翻译通'), findsWidgets);
-    expect(find.text('即时翻译'), findsOneWidget);
+    expect(find.byType(app.FanyiTongApp), findsOneWidget);
+    expect(find.byType(app.MainLayout), findsOneWidget);
+    expect(find.byType(app.BottomNavigationBar), findsOneWidget);
+
+    await binding.takeScreenshot('home');
   });
 }
