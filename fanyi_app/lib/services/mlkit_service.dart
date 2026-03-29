@@ -91,12 +91,12 @@ class MlKitService {
     // 下载中文→越南语模型
     try {
       final zhViDownloaded = await modelManager.isModelDownloaded(
-        TranslateLanguage.vietnamese,
+        TranslateLanguage.vietnamese.bcpCode,
       );
       if (!zhViDownloaded) {
         debugPrint('📥 开始下载越南语翻译模型（约 30MB）...');
         await modelManager.downloadModel(
-          TranslateLanguage.vietnamese,
+          TranslateLanguage.vietnamese.bcpCode,
           isWifiRequired: false, // 允许移动数据下载，用户可在设置里调整
         );
       }
@@ -109,12 +109,12 @@ class MlKitService {
     // 下载中文模型（用于越南语→中文方向）
     try {
       final viZhDownloaded = await modelManager.isModelDownloaded(
-        TranslateLanguage.chinese,
+        TranslateLanguage.chinese.bcpCode,
       );
       if (!viZhDownloaded) {
         debugPrint('📥 开始下载中文翻译模型（约 30MB）...');
         await modelManager.downloadModel(
-          TranslateLanguage.chinese,
+          TranslateLanguage.chinese.bcpCode,
           isWifiRequired: false,
         );
       }
@@ -160,8 +160,8 @@ class MlKitService {
     }
 
     final manager = OnDeviceTranslatorModelManager();
-    final viReady = await manager.isModelDownloaded(TranslateLanguage.vietnamese);
-    final zhReady = await manager.isModelDownloaded(TranslateLanguage.chinese);
+    final viReady = await manager.isModelDownloaded(TranslateLanguage.vietnamese.bcpCode);
+    final zhReady = await manager.isModelDownloaded(TranslateLanguage.chinese.bcpCode);
 
     if (viReady && zhReady) {
       return MlKitStatus(
