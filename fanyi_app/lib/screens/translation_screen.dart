@@ -7,6 +7,7 @@ import '../services/app_action_service.dart';
 import '../services/translation_service.dart';
 import '../services/tts_service.dart';
 import '../ui/app_theme.dart';
+import 'history_screen.dart';
 import 'keyboard_helper_screen.dart';
 
 class TranslationScreen extends StatefulWidget {
@@ -155,6 +156,13 @@ class _TranslationScreenState extends State<TranslationScreen> {
     );
   }
 
+  void _openHistory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const TranslationHistoryScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final detectedLanguage = TranslationService.detectLanguage(
@@ -175,6 +183,11 @@ class _TranslationScreenState extends State<TranslationScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            onPressed: _openHistory,
+            icon: const Icon(Icons.history_rounded),
+            tooltip: '最近翻译记录',
+          ),
           IconButton(
             onPressed: _openKeyboardHelper,
             icon: const Icon(Icons.keyboard_command_key_rounded),

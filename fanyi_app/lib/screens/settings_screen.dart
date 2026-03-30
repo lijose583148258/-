@@ -3,6 +3,7 @@
 import '../services/local_db_service.dart';
 import '../services/mlkit_service.dart';
 import '../services/tts_service.dart';
+import 'history_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -556,6 +557,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const TranslationHistoryScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.history_rounded, size: 18),
+                label: const Text('查看最近记录'),
+              ),
               ElevatedButton.icon(
                 onPressed: _clearingHistory ? null : _clearTranslationHistory,
                 icon: _clearingHistory
