@@ -8,10 +8,12 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
@@ -22,12 +24,17 @@ import kotlin.concurrent.thread
 
 class ZaloReadTranslateAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val eventDebounceRunnable = Runnable { processLatestWindowText() }
+    private val overlayTouchSlop = 18
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
-    private var sourceTextView: TextView? = null
-    private var translatedTextView: TextView? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
+    private lateinit var sourceTextView: TextView
+    private lateinit var translatedTextView: TextView
+    private lateinit var closeButton: TextView
 
+    private var pendingText: String = ""
     private var lastDigest = ""
     private var requestEpoch = 0
 
@@ -53,11 +60,31 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
         if (packageName != "com.zing.zalo") {
             hideOverlay()
+            pendingText = ""
+            lastDigest = ""
             return
         }
 
         val root = rootInActiveWindow ?: return
-        val latestText = extractLatestText(root).trim()
+        pendingText = extractLatestText(root).trim()
+        if (pendingText.isBlank()) {
+            hideOverlay()
+            return
+        }
+        mainHandler.removeCallbacks(eventDebounceRunnable)
+        mainHandler.postDelayed(eventDebounceRunnable, 220)
+    }
+
+    override fun onInterrupt() = Unit
+
+    override fun onDestroy() {
+        mainHandler.removeCallbacks(eventDebounceRunnable)
+        hideOverlay()
+        super.onDestroy()
+    }
+
+    private fun processLatestWindowText() {
+        val latestText = pendingText.trim()
         if (latestText.isBlank()) {
             hideOverlay()
             return
@@ -72,13 +99,6 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
             translated = "Translating...",
         )
         translateAsync(latestText)
-    }
-
-    override fun onInterrupt() = Unit
-
-    override fun onDestroy() {
-        hideOverlay()
-        super.onDestroy()
     }
 
     private fun translateAsync(text: String) {
@@ -133,14 +153,24 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
     private fun extractLatestText(node: AccessibilityNodeInfo): String {
         val texts = mutableListOf<String>()
         collectTexts(node, texts)
-        return texts.lastOrNull { it.isNotBlank() } ?: ""
+        return texts
+            .asReversed()
+            .firstOrNull { isLikelyChatText(it) }
+            ?: texts.lastOrNull { it.isNotBlank() }
+            ?: ""
     }
 
     private fun collectTexts(node: AccessibilityNodeInfo, texts: MutableList<String>) {
         if (node.isVisibleToUser) {
-            val text = node.text?.toString()?.trim().orEmpty()
-            if (text.isNotBlank()) {
-                texts.add(text)
+            val candidates = listOf(
+                node.text?.toString(),
+                node.contentDescription?.toString(),
+            )
+            candidates.forEach { candidate ->
+                val text = candidate?.trim().orEmpty()
+                if (text.isNotBlank() && text !in texts) {
+                    texts.add(text)
+                }
             }
         }
 
@@ -149,24 +179,29 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun isLikelyChatText(text: String): Boolean {
+        if (text.length < 2) return false
+        if (text.all { it.isDigit() }) return false
+        if (text.count { it.isLetterOrDigit() } < 2) return false
+        return true
+    }
+
     private fun ensureOverlay() {
         if (overlayView != null) return
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(20, 18, 20, 18)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1E3A35"))
-                cornerRadius = 24f
-                setStroke(2, Color.parseColor("#8ED2C6"))
-            }
-        }
-
-        val title = TextView(this).apply {
+        val dragHandle = TextView(this).apply {
             text = "Zalo live translate"
             setTextColor(Color.parseColor("#EAFBF6"))
             textSize = 11f
-            setPadding(0, 0, 0, 8)
+            setPadding(0, 0, 0, 0)
+        }
+
+        closeButton = TextView(this).apply {
+            text = "×"
+            setTextColor(Color.parseColor("#EAFBF6"))
+            textSize = 16f
+            setPadding(12, 2, 12, 2)
+            setOnClickListener { hideOverlay() }
         }
 
         sourceTextView = TextView(this).apply {
@@ -182,9 +217,33 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
             setPadding(0, 10, 0, 0)
         }
 
-        root.addView(title)
-        root.addView(sourceTextView)
-        root.addView(translatedTextView)
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                dragHandle,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            addView(closeButton)
+        }
+
+        val contentColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(headerRow)
+            addView(sourceTextView)
+            addView(translatedTextView)
+        }
+
+        val root = FrameLayout(this).apply {
+            setPadding(20, 18, 20, 18)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E3A35"))
+                cornerRadius = 24f
+                setStroke(2, Color.parseColor("#8ED2C6"))
+            }
+            addView(contentColumn)
+            setOnTouchListener(DragTouchListener())
+        }
         overlayView = root
     }
 
@@ -208,6 +267,7 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                 y = 48
             }
+            overlayParams = params
             wm.addView(overlay, params)
         }
     }
@@ -217,6 +277,38 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         val wm = windowManager ?: return
         if (overlay.parent != null) {
             wm.removeView(overlay)
+        }
+    }
+
+    private inner class DragTouchListener : View.OnTouchListener {
+        private var startX = 0
+        private var startY = 0
+        private var touchX = 0f
+        private var touchY = 0f
+
+        override fun onTouch(view: View, event: MotionEvent): Boolean {
+            val params = overlayParams ?: return false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = params.x
+                    startY = params.y
+                    touchX = event.rawX
+                    touchY = event.rawY
+                    return false
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - touchX).toInt()
+                    val dy = (event.rawY - touchY).toInt()
+                    if (kotlin.math.abs(dx) > overlayTouchSlop || kotlin.math.abs(dy) > overlayTouchSlop) {
+                        params.x = startX + dx
+                        params.y = startY + dy
+                        windowManager?.updateViewLayout(view, params)
+                        return true
+                    }
+                }
+            }
+            return false
         }
     }
 }
