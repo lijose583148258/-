@@ -13,7 +13,13 @@ void main() {
 
     expect(find.byType(app.FanyiTongApp), findsOneWidget);
     expect(find.byType(app.MainLayout), findsOneWidget);
-    expect(find.byType(BottomNavigationBar), findsOneWidget);
+    expect(find.text('翻译'), findsWidgets);
+    expect(find.text('对话'), findsWidgets);
+    expect(find.text('学习'), findsWidgets);
+    expect(find.text('拍照'), findsWidgets);
+    expect(find.text('翻译首页'), findsOneWidget);
+    expect(find.text('输入区'), findsOneWidget);
+    expect(find.text('结果区'), findsOneWidget);
 
     await binding.takeScreenshot('home');
   });
