@@ -9,7 +9,6 @@ import 'screens/learn_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/translation_screen.dart';
 import 'services/app_action_service.dart';
-import 'services/translation_service.dart';
 import 'ui/app_theme.dart';
 
 Future<void> main() async {
@@ -24,8 +23,6 @@ Future<void> _bootstrapApp() async {
   } catch (_) {
     // Launch actions are optional. Startup should not fail because of them.
   }
-
-  TranslationService.warmUp();
 }
 
 class FanyiTongApp extends StatelessWidget {

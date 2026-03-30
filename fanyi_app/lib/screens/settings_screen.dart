@@ -29,26 +29,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadStatus() async {
     setState(() => _loading = true);
-    final results = await Future.wait<dynamic>([
-      MlKitService.getStatus(),
-      TtsService.isViSupported,
-      LocalDbService.getStorageStats(),
-    ]);
+    late final MlKitStatus mlKitStatus;
+    late final bool viTtsSupported;
+    late final AppStorageStats storageStats;
+
+    try {
+      mlKitStatus = await MlKitService.getStatus();
+    } catch (_) {
+      mlKitStatus = MlKitStatus(
+        available: false,
+        message: 'ML Kit status unavailable on this device.',
+      );
+    }
+
+    try {
+      viTtsSupported = await TtsService.isViSupported;
+    } catch (_) {
+      viTtsSupported = false;
+    }
+
+    try {
+      storageStats = await LocalDbService.getStorageStats();
+    } catch (_) {
+      storageStats = const AppStorageStats(
+        historyCount: 0,
+        maxHistory: LocalDbService.maxTranslationHistory,
+        dictionaryBytes: 0,
+        appDbBytes: 0,
+      );
+    }
 
     if (!mounted) return;
     setState(() {
-      _mlKitStatus = results[0] as MlKitStatus;
-      _viTtsSupported = results[1] as bool;
-      _storageStats = results[2] as AppStorageStats;
+      _mlKitStatus = mlKitStatus;
+      _viTtsSupported = viTtsSupported;
+      _storageStats = storageStats;
       _loading = false;
     });
   }
 
   Future<void> _triggerModelDownload() async {
     setState(() => _downloadingModels = true);
-    await MlKitService.forceDownloadModels();
-    await _loadStatus();
-    if (mounted) setState(() => _downloadingModels = false);
+    try {
+      await MlKitService.forceDownloadModels();
+      await _loadStatus();
+    } finally {
+      if (mounted) setState(() => _downloadingModels = false);
+    }
   }
 
   Future<void> _clearTranslationHistory() async {
@@ -73,9 +100,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!confirmed) return;
 
     setState(() => _clearingHistory = true);
-    await LocalDbService.clearTranslationHistory();
-    await _loadStatus();
-    if (mounted) setState(() => _clearingHistory = false);
+    try {
+      await LocalDbService.clearTranslationHistory();
+      await _loadStatus();
+    } finally {
+      if (mounted) setState(() => _clearingHistory = false);
+    }
   }
 
   Future<void> _clearMlKitCache() async {
@@ -100,9 +130,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!confirmed) return;
 
     setState(() => _clearingModels = true);
-    await MlKitService.clearDownloadedModels();
-    await _loadStatus();
-    if (mounted) setState(() => _clearingModels = false);
+    try {
+      await MlKitService.clearDownloadedModels();
+      await _loadStatus();
+    } finally {
+      if (mounted) setState(() => _clearingModels = false);
+    }
   }
 
   @override
