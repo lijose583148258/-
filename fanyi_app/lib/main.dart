@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 
 import 'screens/camera_screen.dart';
 import 'screens/conversation_screen.dart';
@@ -12,9 +14,18 @@ import 'ui/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppActionService.init();
-  TranslationService.warmUp();
   runApp(const FanyiTongApp());
+  unawaited(_bootstrapApp());
+}
+
+Future<void> _bootstrapApp() async {
+  try {
+    await AppActionService.init();
+  } catch (_) {
+    // Launch actions are optional. Startup should not fail because of them.
+  }
+
+  TranslationService.warmUp();
 }
 
 class FanyiTongApp extends StatelessWidget {
@@ -43,6 +54,7 @@ class _MainLayoutState extends State<MainLayout> {
   String? _translationSeedText;
   String? _translationLaunchAction;
   int _translationRequestId = 0;
+  final Set<int> _loadedIndexes = <int>{0};
 
   static const List<_NavItem> _items = [
     _NavItem(icon: Icons.translate_rounded, label: '翻译'),
@@ -74,13 +86,12 @@ class _MainLayoutState extends State<MainLayout> {
 
     switch (request.action) {
       case AppLaunchAction.openTranslate:
-        setState(() {
-          _selectedIndex = 0;
-        });
+        _activateTab(0);
         break;
       case AppLaunchAction.pasteTranslate:
         setState(() {
           _selectedIndex = 0;
+          _loadedIndexes.add(0);
           _translationSeedText = null;
           _translationLaunchAction = AppLaunchAction.pasteTranslate;
           _translationRequestId = request.requestId;
@@ -89,6 +100,7 @@ class _MainLayoutState extends State<MainLayout> {
       case AppLaunchAction.sharedText:
         setState(() {
           _selectedIndex = 0;
+          _loadedIndexes.add(0);
           _translationSeedText = request.text;
           _translationLaunchAction = AppLaunchAction.sharedText;
           _translationRequestId = request.requestId;
@@ -96,14 +108,10 @@ class _MainLayoutState extends State<MainLayout> {
         break;
       case AppLaunchAction.voiceTranslate:
       case AppLaunchAction.openConversation:
-        setState(() {
-          _selectedIndex = 1;
-        });
+        _activateTab(1);
         break;
       case AppLaunchAction.openLearn:
-        setState(() {
-          _selectedIndex = 2;
-        });
+        _activateTab(2);
         break;
       case AppLaunchAction.openKeyboard:
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -118,6 +126,32 @@ class _MainLayoutState extends State<MainLayout> {
     AppActionService.clearPending();
   }
 
+  void _activateTab(int index) {
+    setState(() {
+      _selectedIndex = index;
+      _loadedIndexes.add(index);
+    });
+  }
+
+  Widget _buildTab(int index) {
+    switch (index) {
+      case 0:
+        return TranslationScreen(
+          initialText: _translationSeedText,
+          launchAction: _translationLaunchAction,
+          requestId: _translationRequestId,
+        );
+      case 1:
+        return const ConversationScreen();
+      case 2:
+        return const LearnScreen();
+      case 3:
+        return const CameraScreen();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,16 +161,12 @@ class _MainLayoutState extends State<MainLayout> {
           Positioned.fill(
             child: IndexedStack(
               index: _selectedIndex,
-              children: [
-                TranslationScreen(
-                  initialText: _translationSeedText,
-                  launchAction: _translationLaunchAction,
-                  requestId: _translationRequestId,
-                ),
-                const ConversationScreen(),
-                const LearnScreen(),
-                const CameraScreen(),
-              ],
+              children: List<Widget>.generate(_items.length, (index) {
+                if (!_loadedIndexes.contains(index)) {
+                  return const SizedBox.shrink();
+                }
+                return _buildTab(index);
+              }),
             ),
           ),
         ],
@@ -172,7 +202,7 @@ class _MainLayoutState extends State<MainLayout> {
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(14),
-                      onTap: () => setState(() => _selectedIndex = index),
+                      onTap: () => _activateTab(index),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
                         padding: const EdgeInsets.symmetric(vertical: 10),

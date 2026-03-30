@@ -28,8 +28,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   Future<void> _initSpeech() async {
-    final available = await SpeechService.initialize();
-    final viAvailable = await SpeechService.isVietnameseSpeechSupported();
+    bool available = false;
+    bool viAvailable = false;
+
+    try {
+      available = await SpeechService.initialize();
+      viAvailable = await SpeechService.isVietnameseSpeechSupported();
+    } catch (_) {
+      available = false;
+      viAvailable = false;
+    }
+
     if (!mounted) return;
     setState(() {
       _speechAvailable = available;

@@ -11,18 +11,23 @@ class SpeechService {
   static Future<bool> initialize() async {
     if (_initialized) return _available;
 
-    final status = await Permission.microphone.request();
-    if (!status.isGranted) {
-      debugPrint('Microphone permission was denied.');
-      _initialized = true;
-      _available = false;
-      return false;
-    }
+    try {
+      final status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        debugPrint('Microphone permission was denied.');
+        _initialized = true;
+        _available = false;
+        return false;
+      }
 
-    _available = await _speech.initialize(
-      onError: (error) => debugPrint('STT error: ${error.errorMsg}'),
-      onStatus: (status) => debugPrint('STT status: $status'),
-    );
+      _available = await _speech.initialize(
+        onError: (error) => debugPrint('STT error: ${error.errorMsg}'),
+        onStatus: (status) => debugPrint('STT status: $status'),
+      );
+    } catch (error) {
+      debugPrint('Speech initialization failed: $error');
+      _available = false;
+    }
 
     _initialized = true;
     return _available;
