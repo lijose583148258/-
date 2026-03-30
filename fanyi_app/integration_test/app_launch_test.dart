@@ -9,6 +9,8 @@ void main() {
     app.main();
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
+    await binding.convertFlutterSurfaceToImage();
+    await tester.pump();
 
     expect(find.byType(app.FanyiTongApp), findsOneWidget);
     expect(find.byType(app.MainLayout), findsOneWidget);
