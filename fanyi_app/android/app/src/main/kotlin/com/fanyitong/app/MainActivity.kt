@@ -99,7 +99,7 @@ class MainActivity : FlutterActivity() {
             val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
             if (sharedText.isNotBlank()) {
                 return mapOf(
-                    "action" to ACTION_SHARED_TEXT,
+                    "action" to AppLaunchActions.SHARED_TEXT,
                     "text" to sharedText,
                     "requestId" to System.currentTimeMillis(),
                 )
@@ -136,6 +136,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         const val EXTRA_LAUNCH_ACTION = "launch_action"
         const val EXTRA_LAUNCH_TEXT = "launch_text"
-        const val ACTION_SHARED_TEXT = "shared_text"
+        const val ACTION_SHARED_TEXT = AppLaunchActions.SHARED_TEXT
     }
 }

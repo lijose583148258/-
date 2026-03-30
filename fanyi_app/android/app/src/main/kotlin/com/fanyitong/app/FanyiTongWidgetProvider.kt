@@ -44,19 +44,19 @@ class FanyiTongWidgetProvider : AppWidgetProvider() {
 
             views.setOnClickPendingIntent(
                 R.id.widgetPasteButton,
-                launchPendingIntent(context, AppLaunchAction.pasteTranslate),
+                launchPendingIntent(context, AppLaunchActions.PASTE_TRANSLATE),
             )
             views.setOnClickPendingIntent(
                 R.id.widgetVoiceButton,
-                launchPendingIntent(context, AppLaunchAction.voiceTranslate),
+                launchPendingIntent(context, AppLaunchActions.VOICE_TRANSLATE),
             )
             views.setOnClickPendingIntent(
                 R.id.widgetKeyboardButton,
-                launchPendingIntent(context, AppLaunchAction.openKeyboard),
+                launchPendingIntent(context, AppLaunchActions.OPEN_KEYBOARD),
             )
             views.setOnClickPendingIntent(
                 R.id.widgetOpenAppButton,
-                launchPendingIntent(context, AppLaunchAction.openTranslate),
+                launchPendingIntent(context, AppLaunchActions.OPEN_TRANSLATE),
             )
 
             appWidgetManager.updateAppWidget(appWidgetId, views)

@@ -147,15 +147,20 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         hideOverlay()
         val executor = mainExecutor
         val isWindowShot = windowId != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        val callback = object : AccessibilityService.TakeScreenshotCallback {
+            override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                handleScreenshotResult(result)
+            }
+
+            override fun onFailure(errorCode: Int) {
+                mainHandler.post { hideOverlay() }
+            }
+        }
 
         if (isWindowShot) {
-            takeScreenshotOfWindow(windowId!!, executor) { result ->
-                handleScreenshotResult(result)
-            }
+            takeScreenshotOfWindow(windowId!!, executor, callback)
         } else {
-            takeScreenshot(displayId, executor) { result ->
-                handleScreenshotResult(result)
-            }
+            takeScreenshot(displayId, executor, callback)
         }
     }
 
