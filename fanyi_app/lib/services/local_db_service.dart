@@ -1,31 +1,35 @@
-import 'dart:io';
+﻿import 'dart:io';
+
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// 本地数据库服务
-///
-/// 工作原理：
-///   1. APK 安装后首次启动，把 assets/dictionary.db（36KB）复制到手机私有存储
-///   2. 此后所有查询都在手机本地执行，零网络消耗
-///   3. 提供三大功能：翻译（translate）/ 全文搜索（search）/ 俚语列表（slang）
 class LocalDbService {
-  static Database? _db;
+  static Database? _dictionaryDb;
+  static Database? _appDb;
+  static String? _dictionaryDbPath;
+  static String? _appDbPath;
 
-  /// 获取数据库实例（懒加载，只初始化一次）
-  static Future<Database> get _database async {
-    if (_db != null) return _db!;
-    _db = await _initDatabase();
-    return _db!;
+  static const int maxTranslationHistory = 200;
+
+  static Future<Database> get _dictionaryDatabase async {
+    if (_dictionaryDb != null) return _dictionaryDb!;
+    _dictionaryDb = await _initDictionaryDatabase();
+    return _dictionaryDb!;
   }
 
-  static Future<Database> _initDatabase() async {
-    // 手机上的持久化存储目录（类似 /data/data/com.fanyitong.app/files/）
+  static Future<Database> get _appDatabase async {
+    if (_appDb != null) return _appDb!;
+    _appDb = await _initAppDatabase();
+    return _appDb!;
+  }
+
+  static Future<Database> _initDictionaryDatabase() async {
     final dir = await getApplicationDocumentsDirectory();
     final dbPath = p.join(dir.path, 'dictionary_v2.db');
+    _dictionaryDbPath = dbPath;
 
-    // 首次安装时，从 APK assets 复制词典文件
     if (!await File(dbPath).exists()) {
       final ByteData data = await rootBundle.load('assets/dictionary.db');
       await File(dbPath).writeAsBytes(
@@ -37,15 +41,46 @@ class LocalDbService {
     return openDatabase(dbPath, readOnly: true);
   }
 
-  /// Teencode 规范化：把越南网络缩写还原成标准写法
-  /// 例如 "k hiu" → "không hiểu"（不明白）
+  static Future<Database> _initAppDatabase() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final dbPath = p.join(dir.path, 'fanyi_tong_app.db');
+    _appDbPath = dbPath;
+
+    return openDatabase(
+      dbPath,
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE translation_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at INTEGER NOT NULL,
+            original TEXT NOT NULL,
+            translated TEXT NOT NULL,
+            normalized TEXT,
+            source TEXT NOT NULL,
+            direction TEXT,
+            han_zi TEXT,
+            explanation TEXT,
+            is_slang INTEGER NOT NULL DEFAULT 0
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX idx_translation_history_created_at '
+          'ON translation_history(created_at DESC)',
+        );
+      },
+    );
+  }
+
   static Future<String> normalizeText(String text) async {
-    final db = await _database;
+    final db = await _dictionaryDatabase;
     final rules = await db.query('normalization');
 
     final words = text.split(' ');
     final normalized = words.map((word) {
-      final clean = word.toLowerCase().replaceAll(RegExp(r'[.,!?。，！？]$'), '');
+      final clean = word
+          .toLowerCase()
+          .replaceAll(RegExp(r'[.,!?。，！？]$'), '');
       final match = rules.firstWhere(
         (r) => r['shortcut'] == clean,
         orElse: () => <String, Object?>{},
@@ -56,13 +91,11 @@ class LocalDbService {
     return normalized.join(' ');
   }
 
-  /// 离线翻译：先查词典，再查俚语，返回结果与来源
   static Future<OfflineResult> translate(String text) async {
-    final db = await _database;
+    final db = await _dictionaryDatabase;
     final normalized = await normalizeText(text);
     final query = normalized.trim().toLowerCase();
 
-    // 第一优先：精确匹配词典（COLLATE NOCASE = 忽略大小写）
     var rows = await db.rawQuery(
       'SELECT meaning, han_zi FROM dictionary WHERE LOWER(word) = ?',
       [query],
@@ -78,7 +111,6 @@ class LocalDbService {
       );
     }
 
-    // 第二优先：精确匹配俚语
     rows = await db.rawQuery(
       'SELECT meaning, explanation FROM slang WHERE LOWER(word) = ?',
       [query],
@@ -97,9 +129,8 @@ class LocalDbService {
     return OfflineResult(found: false, translated: '');
   }
 
-  /// 全文模糊搜索：支持按越南词、中文释义、汉越音同时检索
   static Future<List<Map<String, dynamic>>> search(String q) async {
-    final db = await _database;
+    final db = await _dictionaryDatabase;
     final pattern = '%${q.trim()}%';
 
     final dict = await db.rawQuery('''
@@ -122,20 +153,129 @@ class LocalDbService {
     ];
   }
 
-  /// 获取所有俚语（热门俚语页面使用）
   static Future<List<Map<String, dynamic>>> getAllSlang() async {
-    final db = await _database;
-    return db.query('slang', orderBy: 'id DESC');
+    return getSlangPage(limit: maxTranslationHistory, offset: 0);
+  }
+
+  static Future<List<Map<String, dynamic>>> getSlangPage({
+    required int limit,
+    required int offset,
+  }) async {
+    final db = await _dictionaryDatabase;
+    return db.query(
+      'slang',
+      orderBy: 'id DESC',
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  static Future<int> getSlangCount() async {
+    final db = await _dictionaryDatabase;
+    final rows = await db.rawQuery('SELECT COUNT(*) AS count FROM slang');
+    return Sqflite.firstIntValue(rows) ?? 0;
+  }
+
+  static Future<void> recordTranslation({
+    required String original,
+    required String translated,
+    required String source,
+    String? direction,
+    String? normalized,
+    String? hanZi,
+    String? explanation,
+    bool isSlang = false,
+  }) async {
+    final db = await _appDatabase;
+    await db.insert('translation_history', {
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+      'original': original,
+      'translated': translated,
+      'normalized': normalized,
+      'source': source,
+      'direction': direction,
+      'han_zi': hanZi,
+      'explanation': explanation,
+      'is_slang': isSlang ? 1 : 0,
+    });
+    await pruneTranslationHistory();
+  }
+
+  static Future<List<Map<String, dynamic>>> getRecentTranslations({
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final db = await _appDatabase;
+    return db.query(
+      'translation_history',
+      orderBy: 'created_at DESC, id DESC',
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  static Future<int> getTranslationHistoryCount() async {
+    final db = await _appDatabase;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM translation_history',
+    );
+    return Sqflite.firstIntValue(rows) ?? 0;
+  }
+
+  static Future<void> pruneTranslationHistory({
+    int maxEntries = maxTranslationHistory,
+  }) async {
+    final db = await _appDatabase;
+    final count = await getTranslationHistoryCount();
+    if (count <= maxEntries) return;
+
+    final deleteCount = count - maxEntries;
+    await db.rawDelete(
+      '''
+      DELETE FROM translation_history
+      WHERE id IN (
+        SELECT id FROM translation_history
+        ORDER BY created_at ASC, id ASC
+        LIMIT ?
+      )
+      ''',
+      [deleteCount],
+    );
+  }
+
+  static Future<void> clearTranslationHistory() async {
+    final db = await _appDatabase;
+    await db.delete('translation_history');
+    await db.execute('VACUUM');
+  }
+
+  static Future<AppStorageStats> getStorageStats() async {
+    final historyCount = await getTranslationHistoryCount();
+    final dictionaryBytes = await _fileSize(_dictionaryDbPath);
+    final appBytes = await _fileSize(_appDbPath);
+
+    return AppStorageStats(
+      historyCount: historyCount,
+      maxHistory: maxTranslationHistory,
+      dictionaryBytes: dictionaryBytes,
+      appDbBytes: appBytes,
+    );
+  }
+
+  static Future<int> _fileSize(String? path) async {
+    if (path == null) return 0;
+    final file = File(path);
+    if (!await file.exists()) return 0;
+    return file.length();
   }
 }
 
-/// 离线查询结果的数据模型
 class OfflineResult {
   final bool found;
   final String translated;
-  final String? hanZi;       // 对应汉字（汉越词专属）
-  final String? explanation; // 俚语解释
-  final String? normalized;  // 规范化后的文本（Teencode 还原后）
+  final String? hanZi;
+  final String? explanation;
+  final String? normalized;
   final bool isSlang;
 
   OfflineResult({
@@ -145,5 +285,19 @@ class OfflineResult {
     this.explanation,
     this.normalized,
     this.isSlang = false,
+  });
+}
+
+class AppStorageStats {
+  final int historyCount;
+  final int maxHistory;
+  final int dictionaryBytes;
+  final int appDbBytes;
+
+  const AppStorageStats({
+    required this.historyCount,
+    required this.maxHistory,
+    required this.dictionaryBytes,
+    required this.appDbBytes,
   });
 }

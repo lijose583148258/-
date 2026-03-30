@@ -35,7 +35,7 @@ class TranslationService {
     if (resolvedDirection == viToZh) {
       final offline = await LocalDbService.translate(trimmed);
       if (offline.found) {
-        return TranslationResult(
+        final result = TranslationResult(
           original: trimmed,
           translated: offline.translated,
           normalized: offline.normalized,
@@ -45,6 +45,17 @@ class TranslationService {
           direction: resolvedDirection,
           source: TranslationSource.localDb,
         );
+        unawaited(LocalDbService.recordTranslation(
+          original: trimmed,
+          translated: result.translated,
+          source: result.source.name,
+          direction: resolvedDirection,
+          normalized: result.normalized,
+          hanZi: result.hanZi,
+          explanation: result.explanation,
+          isSlang: result.isSlang,
+        ));
+        return result;
       }
     }
 
@@ -53,23 +64,37 @@ class TranslationService {
           ? await MlKitService.zhToVi(trimmed)
           : await MlKitService.viToZh(trimmed);
       if (mlResult != null && mlResult.isNotEmpty) {
-        return TranslationResult(
+        final result = TranslationResult(
           original: trimmed,
           translated: mlResult,
           direction: resolvedDirection,
           source: TranslationSource.mlKit,
         );
+        unawaited(LocalDbService.recordTranslation(
+          original: trimmed,
+          translated: result.translated,
+          source: result.source.name,
+          direction: resolvedDirection,
+        ));
+        return result;
       }
     }
 
     try {
       final online = await _callMyMemory(trimmed, resolvedDirection);
-      return TranslationResult(
+      final result = TranslationResult(
         original: trimmed,
         translated: online,
         direction: resolvedDirection,
         source: TranslationSource.myMemory,
       );
+      unawaited(LocalDbService.recordTranslation(
+        original: trimmed,
+        translated: result.translated,
+        source: result.source.name,
+        direction: resolvedDirection,
+      ));
+      return result;
     } catch (_) {
       return TranslationResult(
         original: trimmed,

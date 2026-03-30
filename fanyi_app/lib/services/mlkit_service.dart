@@ -128,8 +128,37 @@ class MlKitService {
   }
 
   static Future<void> forceDownloadModels() async {
+    if (!_initialized) {
+      await initialize();
+    }
     if (!_isAvailable) return;
     await _downloadModels();
+  }
+
+  static Future<void> clearDownloadedModels() async {
+    try {
+      _zhToViTranslator?.close();
+      _viToZhTranslator?.close();
+    } catch (_) {}
+
+    _zhToViTranslator = null;
+    _viToZhTranslator = null;
+    _isAvailable = false;
+    _initialized = false;
+    _zhViModelReady = false;
+    _viZhModelReady = false;
+
+    final modelManager = OnDeviceTranslatorModelManager();
+    try {
+      await modelManager.deleteModel(TranslateLanguage.vietnamese.bcpCode);
+    } catch (error) {
+      debugPrint('Failed to delete Vietnamese model: $error');
+    }
+    try {
+      await modelManager.deleteModel(TranslateLanguage.chinese.bcpCode);
+    } catch (error) {
+      debugPrint('Failed to delete Chinese model: $error');
+    }
   }
 
   static void dispose() {

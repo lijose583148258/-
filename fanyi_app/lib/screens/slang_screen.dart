@@ -1,12 +1,60 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+
 import '../services/local_db_service.dart';
 
-/// 热门越南俚语页面
-///
-/// 数据全部来自本地数据库（完全离线）。
-/// 每张卡片展示：越南语俚语 → 中文速记意思 → 详细文化解释 → 例句
-class SlangScreen extends StatelessWidget {
+class SlangScreen extends StatefulWidget {
   const SlangScreen({super.key});
+
+  @override
+  State<SlangScreen> createState() => _SlangScreenState();
+}
+
+class _SlangScreenState extends State<SlangScreen> {
+  static const int _pageSize = 20;
+
+  final List<Map<String, dynamic>> _items = [];
+  bool _loading = true;
+  bool _loadingMore = false;
+  int _offset = 0;
+  int _total = 0;
+  bool _hasMore = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitial();
+  }
+
+  Future<void> _loadInitial() async {
+    setState(() => _loading = true);
+    _total = await LocalDbService.getSlangCount();
+    final items = await LocalDbService.getSlangPage(limit: _pageSize, offset: 0);
+    if (!mounted) return;
+    setState(() {
+      _items
+        ..clear()
+        ..addAll(items);
+      _offset = items.length;
+      _hasMore = _offset < _total;
+      _loading = false;
+    });
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    setState(() => _loadingMore = true);
+    final items = await LocalDbService.getSlangPage(
+      limit: _pageSize,
+      offset: _offset,
+    );
+    if (!mounted) return;
+    setState(() {
+      _items.addAll(items);
+      _offset += items.length;
+      _hasMore = _offset < _total && items.isNotEmpty;
+      _loadingMore = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,26 +73,19 @@ class SlangScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: LocalDbService.getAllSlang(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(
+      body: _loading
+          ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF677D6A)),
-            );
-          }
-
-          final items = snapshot.data!;
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: items.length + 1, // +1 for header
-            itemBuilder: (context, index) {
-              if (index == 0) return _buildHeader();
-              return _buildSlangCard(items[index - 1], index - 1);
-            },
-          );
-        },
-      ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _items.length + 2,
+              itemBuilder: (context, index) {
+                if (index == 0) return _buildHeader();
+                if (index == _items.length + 1) return _buildFooter();
+                return _buildSlangCard(_items[index - 1], index - 1);
+              },
+            ),
     );
   }
 
@@ -60,21 +101,21 @@ class SlangScreen extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '🇻🇳 越南 Gen Z 网络用语',
+          const Text(
+            '越南 Gen Z 俚语',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
           ),
-          SizedBox(height: 6),
+          const SizedBox(height: 6),
           Text(
-            '掌握这些俚语，才能真正听懂越南年轻人在说什么！\n全部数据离线存储，无需联网即可学习。',
-            style: TextStyle(
+            '本地缓存 ${_items.length}/$_total 条，按页加载更适合真机长期测试。',
+            style: const TextStyle(
               fontSize: 12,
               color: Colors.white,
               height: 1.5,
@@ -85,8 +126,38 @@ class SlangScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildFooter() {
+    if (!_hasMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: Text(
+            '没有更多了',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 24),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: _loadingMore ? null : _loadMore,
+          icon: _loadingMore
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.expand_more_rounded),
+          label: Text(_loadingMore ? '加载中...' : '加载更多'),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSlangCard(Map<String, dynamic> item, int index) {
-    // 循环使用不同背景色，让列表更生动
     final colors = [
       const Color(0xFFFFF3E0),
       const Color(0xFFF3E5F5),
@@ -110,7 +181,6 @@ class SlangScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题行：俚语词汇 + 中文意思徽章
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -125,8 +195,7 @@ class SlangScreen extends StatelessWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.7),
                   borderRadius: BorderRadius.circular(20),
@@ -143,8 +212,6 @@ class SlangScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-
-          // 文化背景解释
           Text(
             item['explanation'] ?? '',
             style: const TextStyle(
@@ -153,8 +220,6 @@ class SlangScreen extends StatelessWidget {
               height: 1.6,
             ),
           ),
-
-          // 例句（如果有）
           if ((item['example'] ?? '').toString().isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(
