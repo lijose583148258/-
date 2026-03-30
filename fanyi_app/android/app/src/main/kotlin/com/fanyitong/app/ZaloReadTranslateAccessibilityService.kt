@@ -2,9 +2,13 @@ package com.fanyitong.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.hardware.HardwareBuffer
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -16,15 +20,21 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 class ZaloReadTranslateAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val eventDebounceRunnable = Runnable { processLatestWindowText() }
+    private val eventDebounceRunnable = Runnable { processLatestWindowContent() }
     private val overlayTouchSlop = 18
 
     private var windowManager: WindowManager? = null
@@ -35,23 +45,33 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
     private lateinit var closeButton: TextView
 
     private var pendingText: String = ""
+    private var pendingAnchorX: Int = 16
+    private var pendingAnchorY: Int = 64
     private var lastDigest = ""
     private var requestEpoch = 0
+    private var screenWidthPx = 0
+    private var screenHeightPx = 0
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         serviceInfo = AccessibilityServiceInfo().apply {
             eventTypes =
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
-                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                    AccessibilityEvent.TYPE_VIEW_SCROLLED or
+                    AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags =
                 AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
             notificationTimeout = 120
             packageNames = arrayOf("com.zing.zalo")
         }
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val metrics = resources.displayMetrics
+        screenWidthPx = metrics.widthPixels
+        screenHeightPx = metrics.heightPixels
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -61,16 +81,24 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         if (packageName != "com.zing.zalo") {
             hideOverlay()
             pendingText = ""
+            pendingAnchorX = dp(16)
+            pendingAnchorY = dp(64)
             lastDigest = ""
             return
         }
 
         val root = rootInActiveWindow ?: return
-        pendingText = extractLatestText(root).trim()
-        if (pendingText.isBlank()) {
-            hideOverlay()
+        val candidate = extractBestCandidate(root)
+        if (candidate == null) {
+            pendingText = ""
+            mainHandler.removeCallbacks(eventDebounceRunnable)
+            mainHandler.postDelayed(eventDebounceRunnable, 220)
             return
         }
+
+        pendingText = candidate.text.trim()
+        pendingAnchorX = candidate.bounds.left.coerceAtLeast(dp(16))
+        pendingAnchorY = (candidate.bounds.bottom + dp(18)).coerceAtMost(screenHeightPx - dp(140))
         mainHandler.removeCallbacks(eventDebounceRunnable)
         mainHandler.postDelayed(eventDebounceRunnable, 220)
     }
@@ -83,32 +111,135 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    private fun processLatestWindowText() {
+    private fun processLatestWindowContent() {
         val latestText = pendingText.trim()
+        if (latestText.isNotBlank() && latestText != lastDigest) {
+            lastDigest = latestText.take(240)
+            showOverlay(
+                source = latestText,
+                translated = "Translating...",
+                anchorX = pendingAnchorX,
+                anchorY = pendingAnchorY,
+            )
+            translateAsync(latestText, pendingAnchorX, pendingAnchorY)
+            return
+        }
+
         if (latestText.isBlank()) {
+            runOcrFallback()
+        }
+    }
+
+    private fun runOcrFallback() {
+        val root = rootInActiveWindow ?: run {
             hideOverlay()
             return
         }
 
-        val digest = latestText.take(240)
-        if (digest == lastDigest) return
-        lastDigest = digest
-
-        showOverlay(
-            source = latestText,
-            translated = "Translating...",
-        )
-        translateAsync(latestText)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            captureScreenshot(displayId = DEFAULT_DISPLAY_ID, root.windowId)
+        } else {
+            hideOverlay()
+        }
     }
 
-    private fun translateAsync(text: String) {
-        val epoch = ++requestEpoch
+    private fun captureScreenshot(displayId: Int, windowId: Int? = null) {
+        hideOverlay()
+        val executor = mainExecutor
+        val isWindowShot = windowId != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
+        if (isWindowShot) {
+            takeScreenshotOfWindow(windowId!!, executor) { result ->
+                handleScreenshotResult(result)
+            }
+        } else {
+            takeScreenshot(displayId, executor) { result ->
+                handleScreenshotResult(result)
+            }
+        }
+    }
+
+    private fun handleScreenshotResult(result: AccessibilityService.ScreenshotResult?) {
+        if (result == null) {
+            return
+        }
+
+        thread {
+            val buffer: HardwareBuffer = result.hardwareBuffer
+            try {
+                val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                    ?.copy(Bitmap.Config.ARGB_8888, false)
+                if (bitmap == null) {
+                    mainHandler.post { hideOverlay() }
+                    return@thread
+                }
+
+                val recognized = recognizeText(bitmap)
+                bitmap.recycle()
+                if (recognized.isBlank()) {
+                    mainHandler.post { hideOverlay() }
+                    return@thread
+                }
+
+                val normalized = recognized.trim()
+                val epoch = ++requestEpoch
+                mainHandler.post {
+                    lastDigest = normalized.take(240)
+                    showOverlay(
+                        source = normalized,
+                        translated = "Translating...",
+                        anchorX = dp(16),
+                        anchorY = dp(96),
+                    )
+                    translateAsync(normalized, dp(16), dp(96), epoch)
+                }
+            } catch (_: Exception) {
+                mainHandler.post { hideOverlay() }
+            } finally {
+                buffer.close()
+            }
+        }
+    }
+
+    private fun recognizeText(bitmap: Bitmap): String {
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val latinRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val chineseRecognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+        return try {
+            val latinText = runRecognizer(image, latinRecognizer)
+            val chineseText = runRecognizer(image, chineseRecognizer)
+            listOf(latinText, chineseText)
+                .maxByOrNull { recognitionScore(it) }
+                .orEmpty()
+        } finally {
+            latinRecognizer.close()
+            chineseRecognizer.close()
+        }
+    }
+
+    private fun runRecognizer(
+        image: InputImage,
+        recognizer: com.google.mlkit.vision.text.TextRecognizer,
+    ): String {
+        return try {
+            Tasks.await(recognizer.process(image), 8, TimeUnit.SECONDS).text.orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun recognitionScore(text: String): Int {
+        return text.length + text.count { it == '\n' } * 12 + text.count { it.isLetterOrDigit() }
+    }
+
+    private fun translateAsync(text: String, anchorX: Int, anchorY: Int, epochOverride: Int? = null) {
+        val epoch = epochOverride ?: ++requestEpoch
         thread {
             try {
                 val translated = requestTranslation(text)
                 mainHandler.post {
                     if (epoch != requestEpoch) return@post
-                    showOverlay(source = text, translated = translated)
+                    showOverlay(source = text, translated = translated, anchorX = anchorX, anchorY = anchorY)
                 }
             } catch (_: Exception) {
                 mainHandler.post {
@@ -116,6 +247,8 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
                     showOverlay(
                         source = text,
                         translated = "Translation failed. Open the app for manual retry.",
+                        anchorX = anchorX,
+                        anchorY = anchorY,
                     )
                 }
             }
@@ -150,32 +283,29 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         return text.any { it in '\u4e00'..'\u9fff' }
     }
 
-    private fun extractLatestText(node: AccessibilityNodeInfo): String {
-        val texts = mutableListOf<String>()
-        collectTexts(node, texts)
-        return texts
-            .asReversed()
-            .firstOrNull { isLikelyChatText(it) }
-            ?: texts.lastOrNull { it.isNotBlank() }
-            ?: ""
+    private fun extractBestCandidate(node: AccessibilityNodeInfo): ChatCandidate? {
+        val candidates = mutableListOf<ChatCandidate>()
+        collectCandidates(node, candidates)
+        return candidates.lastOrNull { isLikelyChatText(it.text) }
     }
 
-    private fun collectTexts(node: AccessibilityNodeInfo, texts: MutableList<String>) {
+    private fun collectCandidates(node: AccessibilityNodeInfo, candidates: MutableList<ChatCandidate>) {
         if (node.isVisibleToUser) {
-            val candidates = listOf(
+            val texts = listOf(
                 node.text?.toString(),
                 node.contentDescription?.toString(),
             )
-            candidates.forEach { candidate ->
+            val bounds = Rect().also { node.getBoundsInScreen(it) }
+            texts.forEach { candidate ->
                 val text = candidate?.trim().orEmpty()
-                if (text.isNotBlank() && text !in texts) {
-                    texts.add(text)
+                if (text.isNotBlank() && text !in candidates.map { it.text }) {
+                    candidates.add(ChatCandidate(text, bounds))
                 }
             }
         }
 
         for (index in 0 until node.childCount) {
-            node.getChild(index)?.let { collectTexts(it, texts) }
+            node.getChild(index)?.let { collectCandidates(it, candidates) }
         }
     }
 
@@ -193,7 +323,6 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
             text = "Zalo live translate"
             setTextColor(Color.parseColor("#EAFBF6"))
             textSize = 11f
-            setPadding(0, 0, 0, 0)
         }
 
         closeButton = TextView(this).apply {
@@ -207,14 +336,16 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         sourceTextView = TextView(this).apply {
             setTextColor(Color.parseColor("#FFFFFF"))
             textSize = 13f
-            maxLines = 3
+            maxLines = 4
+            maxWidth = (screenWidthPx * 0.78f).toInt()
         }
 
         translatedTextView = TextView(this).apply {
             setTextColor(Color.parseColor("#8ED2C6"))
             textSize = 16f
-            maxLines = 4
+            maxLines = 6
             setPadding(0, 10, 0, 0)
+            maxWidth = (screenWidthPx * 0.78f).toInt()
         }
 
         val headerRow = LinearLayout(this).apply {
@@ -227,48 +358,58 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
             addView(closeButton)
         }
 
-        val contentColumn = LinearLayout(this).apply {
+        val contentCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(headerRow)
-            addView(sourceTextView)
-            addView(translatedTextView)
-        }
-
-        val root = FrameLayout(this).apply {
             setPadding(20, 18, 20, 18)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#1E3A35"))
                 cornerRadius = 24f
                 setStroke(2, Color.parseColor("#8ED2C6"))
             }
-            addView(contentColumn)
+            addView(headerRow)
+            addView(sourceTextView)
+            addView(translatedTextView)
             setOnTouchListener(DragTouchListener())
         }
-        overlayView = root
+
+        overlayView = FrameLayout(this).apply {
+            setPadding(16, 16, 16, 16)
+            addView(
+                contentCard,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
     }
 
-    private fun showOverlay(source: String, translated: String) {
+    private fun showOverlay(source: String, translated: String, anchorX: Int, anchorY: Int) {
         ensureOverlay()
-        sourceTextView?.text = source
-        translatedTextView?.text = translated
+        sourceTextView.text = source
+        translatedTextView.text = translated
 
         val overlay = overlayView ?: return
         val wm = windowManager ?: return
+        val params = overlayParams ?: WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = anchorX.coerceIn(dp(16), (screenWidthPx - dp(280)).coerceAtLeast(dp(16)))
+            y = anchorY
+        }.also { overlayParams = it }
 
+        params.y = anchorY.coerceAtLeast(dp(16))
+        params.x = anchorX.coerceIn(dp(16), (screenWidthPx - dp(280)).coerceAtLeast(dp(16)))
         if (overlay.parent == null) {
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT,
-            ).apply {
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                y = 48
-            }
-            overlayParams = params
             wm.addView(overlay, params)
+        } else {
+            wm.updateViewLayout(overlay, params)
         }
     }
 
@@ -278,6 +419,10 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
         if (overlay.parent != null) {
             wm.removeView(overlay)
         }
+    }
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
     }
 
     private inner class DragTouchListener : View.OnTouchListener {
@@ -303,12 +448,21 @@ class ZaloReadTranslateAccessibilityService : AccessibilityService() {
                     if (kotlin.math.abs(dx) > overlayTouchSlop || kotlin.math.abs(dy) > overlayTouchSlop) {
                         params.x = startX + dx
                         params.y = startY + dy
-                        windowManager?.updateViewLayout(view, params)
+                        overlayView?.let { windowManager?.updateViewLayout(it, params) }
                         return true
                     }
                 }
             }
             return false
         }
+    }
+
+    private data class ChatCandidate(
+        val text: String,
+        val bounds: Rect,
+    )
+
+    private companion object {
+        const val DEFAULT_DISPLAY_ID = 0
     }
 }
