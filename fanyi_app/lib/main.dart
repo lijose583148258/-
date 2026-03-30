@@ -2,14 +2,17 @@
 
 import 'screens/camera_screen.dart';
 import 'screens/conversation_screen.dart';
+import 'screens/keyboard_helper_screen.dart';
 import 'screens/learn_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/translation_screen.dart';
+import 'services/app_action_service.dart';
 import 'services/translation_service.dart';
 import 'ui/app_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppActionService.init();
   TranslationService.warmUp();
   runApp(const FanyiTongApp());
 }
@@ -37,13 +40,9 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
-
-  static const List<Widget> _screens = [
-    TranslationScreen(),
-    ConversationScreen(),
-    LearnScreen(),
-    CameraScreen(),
-  ];
+  String? _translationSeedText;
+  String? _translationLaunchAction;
+  int _translationRequestId = 0;
 
   static const List<_NavItem> _items = [
     _NavItem(icon: Icons.translate_rounded, label: '翻译'),
@@ -53,13 +52,92 @@ class _MainLayoutState extends State<MainLayout> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    AppActionService.pendingRequest.addListener(_handleAppAction);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleAppAction();
+    });
+  }
+
+  @override
+  void dispose() {
+    AppActionService.pendingRequest.removeListener(_handleAppAction);
+    super.dispose();
+  }
+
+  void _handleAppAction() {
+    final request = AppActionService.pendingRequest.value;
+    if (request == null || !mounted) {
+      return;
+    }
+
+    switch (request.action) {
+      case AppLaunchAction.openTranslate:
+        setState(() {
+          _selectedIndex = 0;
+        });
+        break;
+      case AppLaunchAction.pasteTranslate:
+        setState(() {
+          _selectedIndex = 0;
+          _translationSeedText = null;
+          _translationLaunchAction = AppLaunchAction.pasteTranslate;
+          _translationRequestId = request.requestId;
+        });
+        break;
+      case AppLaunchAction.sharedText:
+        setState(() {
+          _selectedIndex = 0;
+          _translationSeedText = request.text;
+          _translationLaunchAction = AppLaunchAction.sharedText;
+          _translationRequestId = request.requestId;
+        });
+        break;
+      case AppLaunchAction.voiceTranslate:
+      case AppLaunchAction.openConversation:
+        setState(() {
+          _selectedIndex = 1;
+        });
+        break;
+      case AppLaunchAction.openLearn:
+        setState(() {
+          _selectedIndex = 2;
+        });
+        break;
+      case AppLaunchAction.openKeyboard:
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const KeyboardHelperScreen()),
+          );
+        });
+        break;
+    }
+
+    AppActionService.clearPending();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
           const Positioned.fill(child: AppThemeShell()),
           Positioned.fill(
-            child: IndexedStack(index: _selectedIndex, children: _screens),
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: [
+                TranslationScreen(
+                  initialText: _translationSeedText,
+                  launchAction: _translationLaunchAction,
+                  requestId: _translationRequestId,
+                ),
+                const ConversationScreen(),
+                const LearnScreen(),
+                const CameraScreen(),
+              ],
+            ),
           ),
         ],
       ),

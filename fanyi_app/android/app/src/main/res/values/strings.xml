@@ -3,4 +3,6 @@
     <string name="ime_name">FanyiTong Keyboard</string>
     <string name="ime_subtype_name">Chinese to Vietnamese</string>
     <string name="ime_empty_preview">No translation yet</string>
+    <string name="accessibility_service_name">FanyiTong Zalo Reader</string>
+    <string name="accessibility_service_description">Translate visible Zalo chat text and show an overlay.</string>
 </resources>

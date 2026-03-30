@@ -3,13 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/app_action_service.dart';
 import '../services/translation_service.dart';
 import '../services/tts_service.dart';
 import '../ui/app_theme.dart';
 import 'keyboard_helper_screen.dart';
 
 class TranslationScreen extends StatefulWidget {
-  const TranslationScreen({super.key});
+  final String? initialText;
+  final String? launchAction;
+  final int? requestId;
+
+  const TranslationScreen({
+    super.key,
+    this.initialText,
+    this.launchAction,
+    this.requestId,
+  });
 
   @override
   State<TranslationScreen> createState() => _TranslationScreenState();
@@ -24,11 +34,57 @@ class _TranslationScreenState extends State<TranslationScreen> {
   bool _isSpeaking = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applyLaunchIntent();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant TranslationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.requestId != oldWidget.requestId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _applyLaunchIntent();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _debounceTimer?.cancel();
     _inputController.dispose();
     TtsService.stop();
     super.dispose();
+  }
+
+  Future<void> _applyLaunchIntent() async {
+    if (!mounted) return;
+
+    if (widget.launchAction == AppLaunchAction.pasteTranslate) {
+      final data = await Clipboard.getData('text/plain');
+      final text = data?.text ?? '';
+      if (text.trim().isEmpty) {
+        setState(() {
+          _result = null;
+          _isLoading = false;
+        });
+        return;
+      }
+
+      _inputController.text = text;
+      setState(() {});
+      _translateText(text);
+      return;
+    }
+
+    final text = widget.initialText?.trim() ?? '';
+    if (text.isNotEmpty) {
+      _inputController.text = text;
+      setState(() {});
+      _translateText(text);
+    }
   }
 
   void _translateText(String text) {

@@ -51,6 +51,10 @@ class _KeyboardHelperScreenState extends State<KeyboardHelperScreen> {
     _refreshStatus();
   }
 
+  Future<void> _openAccessibilitySettings() async {
+    await _channel.invokeMethod('openAccessibilitySettings');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -74,6 +78,7 @@ class _KeyboardHelperScreenState extends State<KeyboardHelperScreen> {
               _ActionPanel(
                 onOpenSettings: _openSettings,
                 onShowPicker: _showPicker,
+                onOpenAccessibilitySettings: _openAccessibilitySettings,
               ),
               const SizedBox(height: 16),
               const _HowToUsePanel(),
@@ -248,10 +253,12 @@ class _StatusRow extends StatelessWidget {
 class _ActionPanel extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final VoidCallback onShowPicker;
+  final VoidCallback onOpenAccessibilitySettings;
 
   const _ActionPanel({
     required this.onOpenSettings,
     required this.onShowPicker,
+    required this.onOpenAccessibilitySettings,
   });
 
   @override
@@ -286,6 +293,15 @@ class _ActionPanel extends StatelessWidget {
                 onPressed: onShowPicker,
                 icon: const Icon(Icons.keyboard_rounded),
                 label: const Text('Show input method picker'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onOpenAccessibilitySettings,
+                icon: const Icon(Icons.visibility_rounded),
+                label: const Text('Open accessibility settings'),
               ),
             ),
           ],
