@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../services/speech_service.dart';
 import '../services/translation_service.dart';
@@ -17,8 +17,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   bool _speechAvailable = false;
   bool _vietnameseSpeechAvailable = false;
-  bool _isListeningChinese = false;
-  bool _isListeningVietnamese = false;
+
+  bool _isListening = false;
+  bool _listeningChineseSource = true;
   String _liveText = '';
 
   @override
@@ -44,30 +45,27 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     setState(() {
+      _isListening = true;
+      _listeningChineseSource = chineseSource;
       _liveText = '';
-      _isListeningChinese = chineseSource;
-      _isListeningVietnamese = !chineseSource;
     });
 
     await SpeechService.startListening(
       localeId: chineseSource ? 'zh-CN' : 'vi-VN',
       onResult: (text) {
-        if (mounted) {
-          setState(() => _liveText = text);
-        }
+        if (mounted) setState(() => _liveText = text);
       },
-      onDone: () => _finishListening(chineseSource),
+      onDone: () => _stopAndTranslate(chineseSource),
     );
   }
 
-  Future<void> _finishListening(bool chineseSource) async {
+  Future<void> _stopAndTranslate(bool chineseSource) async {
     await SpeechService.stopListening();
     final original = _liveText.trim();
 
     if (mounted) {
       setState(() {
-        _isListeningChinese = false;
-        _isListeningVietnamese = false;
+        _isListening = false;
         _liveText = '';
       });
     }
@@ -76,9 +74,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     final result = await TranslationService.translate(
       original,
-      direction: chineseSource
-          ? TranslationService.zhToVi
-          : TranslationService.viToZh,
+      direction: chineseSource ? TranslationService.zhToVi : TranslationService.viToZh,
     );
 
     if (!mounted) return;
@@ -132,33 +128,53 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
 
     if (confirmed == true && controller.text.trim().isNotEmpty) {
-      _liveText = controller.text;
-      await _finishListening(chineseSource);
+      setState(() => _liveText = controller.text);
+      await _stopAndTranslate(chineseSource);
     }
   }
 
   void _showSpeechUnavailable() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('当前设备无法使用语音识别，请改用手动输入。'),
-      ),
+      const SnackBar(content: Text('当前设备无法使用语音识别，请改用手动输入。')),
     );
+  }
+
+  Future<void> _onInputPressed(bool chineseSource) async {
+    if (!_speechAvailable) {
+      await _manualInput(chineseSource);
+      return;
+    }
+
+    if (_isListening) {
+      // Tapping the same side stops and translates. Tapping the other side switches.
+      if (_listeningChineseSource == chineseSource) {
+        await _stopAndTranslate(chineseSource);
+      } else {
+        await SpeechService.stopListening();
+        if (!mounted) return;
+        setState(() {
+          _isListening = false;
+          _liveText = '';
+        });
+        await _startListening(chineseSource);
+      }
+      return;
+    }
+
+    await _startListening(chineseSource);
   }
 
   @override
   Widget build(BuildContext context) {
+    final statusText = !_speechAvailable
+        ? '语音不可用，改用手动输入。'
+        : _isListening
+            ? (_listeningChineseSource ? '正在听中文：$_liveText' : '正在听越南语：$_liveText')
+            : '点一下开始说话，再点一下停止并翻译。';
+
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'DUAL TALK',
-              style: TextStyle(fontSize: 11, letterSpacing: 1.1, color: AppTheme.inkMuted),
-            ),
-            const Text('对话翻译'),
-          ],
-        ),
+        title: const Text('对话翻译'),
         actions: [
           if (_messages.isNotEmpty)
             IconButton(
@@ -174,54 +190,51 @@ class _ConversationScreenState extends State<ConversationScreen> {
           Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-                child: ModemStatusBar(
-                  pills: [
-                    const StatusPillData('PTT MODE', AppTheme.accentSoft),
-                    StatusPillData(
-                      _speechAvailable ? 'MIC READY' : 'MANUAL ONLY',
-                      _speechAvailable ? AppTheme.success : AppTheme.amber,
-                    ),
-                    StatusPillData(
-                      _vietnameseSpeechAvailable ? 'VI STT ON' : 'VI STT LIMITED',
-                      _vietnameseSpeechAvailable ? AppTheme.cyan : AppTheme.amber,
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppTheme.ink,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: AppTheme.borderStrong),
+                    color: Colors.white.withValues(alpha: 0.78),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.borderMuted),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      const Text(
-                        '面对面说话，App 负责转译与朗读。',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
+                      const Icon(Icons.record_voice_over_rounded, size: 18, color: AppTheme.ink),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          statusText,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: AppTheme.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _liveText.isEmpty
-                            ? '按住按钮说话，松开后自动翻译。语音不可用时可直接手动输入。'
-                            : '识别中: $_liveText',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                          height: 1.5,
+                      if (_speechAvailable)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: (_vietnameseSpeechAvailable ? AppTheme.cyan : AppTheme.amber)
+                                .withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: AppTheme.borderMuted),
+                          ),
+                          child: Text(
+                            _vietnameseSpeechAvailable ? 'VI STT OK' : 'VI STT LIMITED',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.ink,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -244,62 +257,32 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: _ActionPad(
-                          title: '中文说话方',
-                          subtitle: _speechAvailable ? '按住说中文' : '手动输入中文',
-                          accent: AppTheme.accent,
-                          active: _isListeningChinese,
-                          icon: _speechAvailable ? Icons.mic_rounded : Icons.keyboard_rounded,
-                          onTapDown: (_) {
-                            if (_speechAvailable) {
-                              _startListening(true);
-                            } else {
-                              _manualInput(true);
-                            }
-                          },
-                          onTapUp: (_) {
-                            if (_speechAvailable && _isListeningChinese) {
-                              _finishListening(true);
-                            }
-                          },
-                          onTapCancel: () async {
-                            if (_isListeningChinese) {
-                              await SpeechService.cancelListening();
-                              if (mounted) {
-                                setState(() => _isListeningChinese = false);
-                              }
-                            }
-                          },
+                        child: _DualActionButton(
+                          title: '中文',
+                          subtitle: _speechAvailable ? '开始说 / 停止翻译' : '手动输入',
+                          color: AppTheme.accent,
+                          active: _isListening && _listeningChineseSource,
+                          icon: _speechAvailable
+                              ? (_isListening && _listeningChineseSource
+                                  ? Icons.stop_rounded
+                                  : Icons.mic_rounded)
+                              : Icons.keyboard_rounded,
+                          onPressed: () => _onInputPressed(true),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: _ActionPad(
-                          title: '越南语说话方',
-                          subtitle: _speechAvailable ? '按住说越南语' : '手动输入越南语',
-                          accent: AppTheme.cyan,
-                          active: _isListeningVietnamese,
-                          icon: _speechAvailable ? Icons.record_voice_over_rounded : Icons.keyboard_rounded,
-                          onTapDown: (_) {
-                            if (_speechAvailable) {
-                              _startListening(false);
-                            } else {
-                              _manualInput(false);
-                            }
-                          },
-                          onTapUp: (_) {
-                            if (_speechAvailable && _isListeningVietnamese) {
-                              _finishListening(false);
-                            }
-                          },
-                          onTapCancel: () async {
-                            if (_isListeningVietnamese) {
-                              await SpeechService.cancelListening();
-                              if (mounted) {
-                                setState(() => _isListeningVietnamese = false);
-                              }
-                            }
-                          },
+                        child: _DualActionButton(
+                          title: '越南语',
+                          subtitle: _speechAvailable ? '开始说 / 停止翻译' : '手动输入',
+                          color: AppTheme.cyan,
+                          active: _isListening && !_listeningChineseSource,
+                          icon: _speechAvailable
+                              ? (_isListening && !_listeningChineseSource
+                                  ? Icons.stop_rounded
+                                  : Icons.mic_rounded)
+                              : Icons.keyboard_rounded,
+                          onPressed: () => _onInputPressed(false),
                         ),
                       ),
                     ],
@@ -314,83 +297,75 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 }
 
-class _ActionPad extends StatelessWidget {
+class _DualActionButton extends StatelessWidget {
   final String title;
   final String subtitle;
-  final Color accent;
+  final Color color;
   final bool active;
   final IconData icon;
-  final GestureTapDownCallback onTapDown;
-  final GestureTapUpCallback onTapUp;
-  final VoidCallback onTapCancel;
+  final VoidCallback onPressed;
 
-  const _ActionPad({
+  const _DualActionButton({
     required this.title,
     required this.subtitle,
-    required this.accent,
+    required this.color,
     required this.active,
     required this.icon,
-    required this.onTapDown,
-    required this.onTapUp,
-    required this.onTapCancel,
+    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: onTapDown,
-      onTapUp: onTapUp,
-      onTapCancel: onTapCancel,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: active ? accent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: active ? accent : AppTheme.borderMuted, width: active ? 1.4 : 1),
-          boxShadow: active
-              ? [
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.2),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
+    return FilledButton(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: active ? color : Colors.white.withValues(alpha: 0.88),
+        foregroundColor: active ? Colors.white : AppTheme.ink,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        side: BorderSide(color: active ? color : AppTheme.borderMuted),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: active ? Colors.white.withValues(alpha: 0.18) : color.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              icon,
+              color: active ? Colors.white : color,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
                   ),
-                ]
-              : null,
-        ),
-        child: Column(
-          children: [
-            Container(
-              width: 62,
-              height: 62,
-              decoration: BoxDecoration(
-                color: active ? accent : AppTheme.ink,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: Colors.white, size: 28),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: active ? Colors.white70 : AppTheme.inkMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.ink,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              active ? '松手翻译' : subtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.4,
-                color: active ? accent : AppTheme.inkMuted,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -405,10 +380,13 @@ class _ConversationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final pillColor = entry.chineseSource ? AppTheme.accentSoft : AppTheme.cyan;
+    final pillText = entry.chineseSource ? '中文 → 越南语' : '越南语 → 中文';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -417,17 +395,17 @@ class _ConversationCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: entry.chineseSource
-                        ? AppTheme.accentSoft.withValues(alpha: 0.24)
-                        : AppTheme.cyan.withValues(alpha: 0.18),
+                    color: pillColor.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: AppTheme.borderMuted),
                   ),
                   child: Text(
-                    entry.chineseSource ? '中文 -> 越南语' : '越南语 -> 中文',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: entry.chineseSource ? AppTheme.accent : AppTheme.cyan,
-                      fontWeight: FontWeight.w700,
+                    pillText,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.ink,
+                      letterSpacing: 0.2,
                     ),
                   ),
                 ),
@@ -456,7 +434,7 @@ class _ConversationCard extends StatelessWidget {
               entry.translated,
               style: const TextStyle(
                 fontSize: 20,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w900,
                 color: AppTheme.ink,
                 height: 1.3,
               ),
@@ -475,25 +453,25 @@ class _ConversationEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      children: [
+      children: const [
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(22),
+            padding: EdgeInsets.all(20),
             child: Column(
               children: [
-                const Icon(Icons.multitrack_audio_rounded, size: 44, color: AppTheme.inkMuted),
-                const SizedBox(height: 14),
-                const Text(
-                  '这里会按时间倒序保存刚刚的对话。',
+                Icon(Icons.chat_bubble_outline_rounded, size: 44, color: AppTheme.inkMuted),
+                SizedBox(height: 12),
+                Text(
+                  '这里会保存最近的对话翻译。',
                   style: TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
                     color: AppTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  '先试着按住中文或越南语按钮说一句话，系统会自动翻译并朗读给对方听。',
+                SizedBox(height: 8),
+                Text(
+                  '点中文或越南语开始说话，再点一次停止并翻译。',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
@@ -523,3 +501,4 @@ class _ConversationEntry {
     required this.sourceLabel,
   });
 }
+

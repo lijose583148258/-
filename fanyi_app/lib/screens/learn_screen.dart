@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../services/local_db_service.dart';
 import '../ui/app_theme.dart';
@@ -52,44 +52,37 @@ class _LearnScreenState extends State<LearnScreen> {
     }
   }
 
+  void _openKeyboardHelper() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const KeyboardHelperScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Learn'),
+        title: const Text('学习'),
+        actions: [
+          IconButton(
+            onPressed: _openKeyboardHelper,
+            icon: const Icon(Icons.keyboard_command_key_rounded),
+            tooltip: '聊天键盘',
+          ),
+        ],
       ),
       body: Stack(
         children: [
           const Positioned.fill(child: AppThemeShell()),
           ListView(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
             children: [
-              const ModemStatusBar(
-                pills: [
-                  StatusPillData('LEARN PATH', AppTheme.accentSoft),
-                  StatusPillData('HAN-VIET', AppTheme.cyan),
-                  StatusPillData('CHAT READY', AppTheme.amber),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const _LearnHeroCard(),
-              const SizedBox(height: 16),
-              _QuickModules(
-                onKeyboardTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const KeyboardHelperScreen(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
               TextField(
                 controller: _searchController,
                 onChanged: _load,
                 decoration: InputDecoration(
-                  hintText: 'Search dictionary, slang, or Han-Viet roots',
+                  hintText: '搜索词条、释义、汉越词根…',
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: _searchController.text.isEmpty
                       ? null
@@ -103,28 +96,65 @@ class _LearnScreenState extends State<LearnScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              Row(
                 children: [
-                  _FilterChip(
-                    label: 'All',
-                    selected: _filter == LearnFilter.all,
-                    onTap: () => setState(() => _filter = LearnFilter.all),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.78),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.borderMuted),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<LearnFilter>(
+                          value: _filter,
+                          isExpanded: true,
+                          items: const [
+                            DropdownMenuItem(
+                              value: LearnFilter.all,
+                              child: Text('全部'),
+                            ),
+                            DropdownMenuItem(
+                              value: LearnFilter.hanViet,
+                              child: Text('只看汉越'),
+                            ),
+                            DropdownMenuItem(
+                              value: LearnFilter.slang,
+                              child: Text('只看俚语'),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            if (v == null) return;
+                            setState(() => _filter = v);
+                          },
+                        ),
+                      ),
+                    ),
                   ),
-                  _FilterChip(
-                    label: 'Han-Viet',
-                    selected: _filter == LearnFilter.hanViet,
-                    onTap: () => setState(() => _filter = LearnFilter.hanViet),
-                  ),
-                  _FilterChip(
-                    label: 'Slang',
-                    selected: _filter == LearnFilter.slang,
-                    onTap: () => setState(() => _filter = LearnFilter.slang),
+                  const SizedBox(width: 10),
+                  FilledButton.icon(
+                    onPressed: _openKeyboardHelper,
+                    icon: const Icon(Icons.chat_bubble_outline_rounded),
+                    label: const Text('插入到Zalo'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               if (_loading)
                 const Padding(
                   padding: EdgeInsets.only(top: 40),
@@ -150,29 +180,137 @@ enum LearnFilter {
   slang,
 }
 
-class _LearnHeroCard extends StatelessWidget {
-  const _LearnHeroCard();
+class _LearnResultCard extends StatelessWidget {
+  final Map<String, dynamic> item;
+
+  const _LearnResultCard({required this.item});
 
   @override
   Widget build(BuildContext context) {
+    final type = (item['type'] ?? 'dict').toString();
+    final word = (item['word'] ?? '').toString().trim();
+    final meaning = (item['meaning'] ?? '').toString().trim();
+    final hanViet = (item['han_viet'] ?? '').toString().trim();
+    final hanZi = (item['han_zi'] ?? '').toString().trim();
+
+    final chips = <Widget>[
+      _TinyChip(
+        label: type == 'slang' ? '俚语' : '词典',
+        color: type == 'slang' ? AppTheme.amber : AppTheme.accentSoft,
+      ),
+      if (hanZi.isNotEmpty)
+        const _TinyChip(label: '汉越', color: AppTheme.cyan),
+    ];
+
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Turn translation into language memory.',
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    word.isEmpty ? '未命名词条' : word,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: AppTheme.ink,
+                    ),
+                  ),
+                ),
+                Wrap(spacing: 6, children: chips),
+              ],
+            ),
+            if (hanViet.isNotEmpty || hanZi.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                [
+                  if (hanViet.isNotEmpty) 'Han-Viet: $hanViet',
+                  if (hanZi.isNotEmpty) '汉字: $hanZi',
+                ].join('   '),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.inkMuted,
+                  height: 1.3,
+                ),
+              ),
+            ],
+            if (meaning.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                meaning,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.inkMuted,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TinyChip extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _TinyChip({
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.borderMuted),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: AppTheme.ink,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyLearnState extends StatelessWidget {
+  const _EmptyLearnState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Icon(Icons.search_off_rounded, size: 44, color: AppTheme.inkMuted),
+            SizedBox(height: 12),
+            Text(
+              '没有找到内容',
               style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
                 color: AppTheme.ink,
-                height: 1.2,
               ),
             ),
-            const SizedBox(height: 10),
-            const Text(
-              'This page combines dictionary entries, slang, Han-Viet roots, and the chat keyboard helper into one practical study flow.',
+            SizedBox(height: 8),
+            Text(
+              '换个关键词试试，或先在翻译页产生一些常用句子。',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
                 color: AppTheme.inkMuted,
@@ -186,292 +324,3 @@ class _LearnHeroCard extends StatelessWidget {
   }
 }
 
-class _QuickModules extends StatelessWidget {
-  final VoidCallback onKeyboardTap;
-
-  const _QuickModules({
-    required this.onKeyboardTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      _ModuleData(
-        title: 'Chat Keyboard',
-        subtitle: 'Insert text into Zalo',
-        icon: Icons.keyboard_rounded,
-        color: AppTheme.accent,
-        onTap: onKeyboardTap,
-      ),
-      const _ModuleData(
-        title: 'Han-Viet Roots',
-        subtitle: 'Learn faster',
-        icon: Icons.auto_stories_rounded,
-        color: AppTheme.cyan,
-      ),
-      const _ModuleData(
-        title: 'Daily Slang',
-        subtitle: 'Sound more natural',
-        icon: Icons.bolt_rounded,
-        color: AppTheme.amber,
-      ),
-    ];
-
-    return Row(
-      children: items.map((item) {
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: InkWell(
-              onTap: item.onTap,
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.88),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppTheme.borderMuted),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: item.color.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(item.icon, color: item.color, size: 20),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      item.title,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.subtitle,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.inkMuted,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _ModuleData {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const _ModuleData({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.color,
-    this.onTap,
-  });
-}
-
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? AppTheme.accentSoft : Colors.white.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? AppTheme.accent : AppTheme.borderMuted,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: selected ? AppTheme.ink : AppTheme.inkMuted,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LearnResultCard extends StatelessWidget {
-  final Map<String, dynamic> item;
-
-  const _LearnResultCard({
-    required this.item,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isSlang = item['type'] == 'slang';
-    final String title = (item['word'] ?? '').toString();
-    final String meaning = (item['meaning'] ?? '').toString();
-    final String hanZi = (item['han_zi'] ?? '').toString();
-    final String hanViet = (item['han_viet'] ?? '').toString();
-    final String detail = isSlang
-        ? (item['explanation'] ?? '').toString()
-        : (item['examples'] ?? '').toString();
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSlang
-                        ? AppTheme.amber.withValues(alpha: 0.18)
-                        : AppTheme.accentSoft.withValues(alpha: 0.22),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    isSlang ? 'Slang' : 'Dictionary',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: isSlang ? AppTheme.amber : AppTheme.accent,
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                if (hanZi.isNotEmpty)
-                  Text(
-                    hanZi,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.ink,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.ink,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              meaning,
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppTheme.ink,
-                height: 1.45,
-              ),
-            ),
-            if (hanViet.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Han-Viet: $hanViet',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.inkMuted,
-                ),
-              ),
-            ],
-            if (detail.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.panelStrong.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(
-                  detail,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.inkMuted,
-                    height: 1.5,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyLearnState extends StatelessWidget {
-  const _EmptyLearnState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            const Icon(Icons.search_off_rounded, size: 38, color: AppTheme.inkMuted),
-            const SizedBox(height: 12),
-            const Text(
-              'Nothing matched this search yet.',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppTheme.ink,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Try a simpler word, a Han-Viet root, or a slang phrase.',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppTheme.inkMuted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

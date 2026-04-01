@@ -29,10 +29,14 @@ class TranslationScreen extends StatefulWidget {
 class _TranslationScreenState extends State<TranslationScreen> {
   final TextEditingController _inputController = TextEditingController();
   Timer? _debounceTimer;
+
   int _translationEpoch = 0;
   TranslationResult? _result;
   bool _isLoading = false;
   bool _isSpeaking = false;
+
+  /// If set, we force a direction instead of relying on auto language detection.
+  String? _directionOverride;
 
   @override
   void initState() {
@@ -101,11 +105,14 @@ class _TranslationScreenState extends State<TranslationScreen> {
     }
 
     final currentEpoch = ++_translationEpoch;
-
     setState(() => _isLoading = true);
+
     _debounceTimer = Timer(const Duration(milliseconds: 450), () async {
       try {
-        final result = await TranslationService.translate(text);
+        final result = await TranslationService.translate(
+          text,
+          direction: _directionOverride,
+        );
         if (!mounted || currentEpoch != _translationEpoch) return;
 
         setState(() {
@@ -116,7 +123,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
         if (!mounted || currentEpoch != _translationEpoch) return;
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('翻译暂时失败，稍后再试。')),
+          const SnackBar(content: Text('翻译暂时失败，请稍后再试。')),
         );
       }
     });
@@ -125,19 +132,20 @@ class _TranslationScreenState extends State<TranslationScreen> {
   Future<void> _speakResult() async {
     if (_result == null || !_result!.hasResult) return;
     setState(() => _isSpeaking = true);
+
     final isVietnamese = _result!.direction == TranslationService.zhToVi;
     final success = await TtsService.speak(
       _result!.translated,
       isVietnamese: isVietnamese,
     );
 
-    if (mounted) {
-      setState(() => _isSpeaking = false);
-      if (!success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('当前设备未安装可用的越南语语音包。')),
-        );
-      }
+    if (!mounted) return;
+    setState(() => _isSpeaking = false);
+
+    if (!success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前设备缺少可用语音包，无法朗读。')),
+      );
     }
   }
 
@@ -147,6 +155,14 @@ class _TranslationScreenState extends State<TranslationScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已复制译文到剪贴板。')),
     );
+  }
+
+  Future<void> _pasteToInput() async {
+    final data = await Clipboard.getData('text/plain');
+    final text = data?.text ?? '';
+    _inputController.text = text;
+    setState(() {});
+    _translateText(text);
   }
 
   void _openKeyboardHelper() {
@@ -163,38 +179,52 @@ class _TranslationScreenState extends State<TranslationScreen> {
     );
   }
 
+  void _toggleDirectionOverride() {
+    final detected = TranslationService.detectLanguage(_inputController.text);
+    final autoDirection =
+        detected == 'zh' ? TranslationService.zhToVi : TranslationService.viToZh;
+    final current = _directionOverride ?? autoDirection;
+    final next = current == TranslationService.zhToVi
+        ? TranslationService.viToZh
+        : TranslationService.zhToVi;
+
+    setState(() => _directionOverride = next);
+    _translateText(_inputController.text);
+  }
+
+  void _clearDirectionOverride() {
+    if (_directionOverride == null) return;
+    setState(() => _directionOverride = null);
+    _translateText(_inputController.text);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final detectedLanguage = TranslationService.detectLanguage(
-      _inputController.text,
-    );
-    final directionLabel = detectedLanguage == 'zh' ? '中文 -> 越南语' : '越南语 -> 中文';
+    final detected = TranslationService.detectLanguage(_inputController.text);
+    final autoDirection =
+        detected == 'zh' ? TranslationService.zhToVi : TranslationService.viToZh;
+    final resolvedDirection = _directionOverride ?? autoDirection;
+    final directionLabel = resolvedDirection == TranslationService.zhToVi
+        ? '中文 → 越南语'
+        : '越南语 → 中文';
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Translate',
-              style: TextStyle(fontSize: 11, letterSpacing: 1.1, color: AppTheme.inkMuted),
-            ),
-            const Text('翻译首页'),
-          ],
-        ),
+        title: const Text('翻译'),
         actions: [
           IconButton(
             onPressed: _openHistory,
             icon: const Icon(Icons.history_rounded),
-            tooltip: '最近翻译记录',
+            tooltip: '最近翻译',
           ),
           IconButton(
             onPressed: _openKeyboardHelper,
             icon: const Icon(Icons.keyboard_command_key_rounded),
-            tooltip: '聊天键盘助手',
+            tooltip: '聊天键盘',
           ),
           IconButton(
-            onPressed: _speakResult,
+            onPressed:
+                (_result?.hasResult == true && !_isSpeaking) ? _speakResult : null,
             icon: Icon(
               _isSpeaking ? Icons.graphic_eq_rounded : Icons.volume_up_rounded,
             ),
@@ -206,116 +236,88 @@ class _TranslationScreenState extends State<TranslationScreen> {
         children: [
           const Positioned.fill(child: AppThemeShell()),
           ListView(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
             children: [
-              ModemStatusBar(
-                pills: [
-                  const StatusPillData('MODEM READY', AppTheme.accentSoft),
-                  StatusPillData(directionLabel.toUpperCase(), AppTheme.cyan),
-                  StatusPillData(
-                    _result?.isOnline == true ? 'ONLINE' : 'OFFLINE FIRST',
-                    _result?.isOnline == true ? AppTheme.amber : AppTheme.success,
+              InkWell(
+                onTap: _toggleDirectionOverride,
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.78),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.borderMuted),
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: AppTheme.ink,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: AppTheme.borderStrong),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'TEXT / OCR / CHAT INSERT',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11,
-                        letterSpacing: 1.1,
-                        fontWeight: FontWeight.w700,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.swap_horiz_rounded, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          (_directionOverride == null ? '自动：' : '固定：') +
+                              directionLabel,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.ink,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      '简单、快、可学习的中越翻译。',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '像翻译工具一样直接，像学习产品一样能沉淀词汇，还能衔接聊天键盘。',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
+                      if (_directionOverride != null)
+                        IconButton(
+                          onPressed: _clearDirectionOverride,
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          tooltip: '恢复自动识别',
+                        ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.edit_note_rounded, color: AppTheme.accent),
-                          const SizedBox(width: 8),
-                          Text(
-                            '输入区',
-                            style: Theme.of(context).textTheme.titleMedium,
+                          const Text(
+                            '输入',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                           const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppTheme.panelStrong,
-                              borderRadius: BorderRadius.circular(999),
+                          if (_inputController.text.trim().isNotEmpty)
+                            IconButton(
+                              onPressed: () {
+                                _inputController.clear();
+                                _translateText('');
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                              tooltip: '清空',
                             ),
-                            child: Text(
-                              directionLabel,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.ink,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       TextField(
                         controller: _inputController,
-                        minLines: 4,
-                        maxLines: 7,
+                        minLines: 5,
+                        maxLines: 9,
                         onChanged: (text) {
                           setState(() {});
                           _translateText(text);
                         },
-                        decoration: InputDecoration(
+                        decoration: const InputDecoration(
                           hintText: '输入中文或越南语，结果会自动出现。',
-                          suffixIcon: _inputController.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () {
-                                    _inputController.clear();
-                                    _translateText('');
-                                  },
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -323,23 +325,12 @@ class _TranslationScreenState extends State<TranslationScreen> {
                           _QuickButton(
                             label: '粘贴',
                             icon: Icons.content_paste_rounded,
-                            onTap: () async {
-                              final data = await Clipboard.getData('text/plain');
-                              final text = data?.text ?? '';
-                              _inputController.text = text;
-                              setState(() {});
-                              _translateText(text);
-                            },
+                            onTap: _pasteToInput,
                           ),
                           _QuickButton(
                             label: '聊天键盘',
-                            icon: Icons.keyboard_command_key_rounded,
+                            icon: Icons.keyboard_rounded,
                             onTap: _openKeyboardHelper,
-                          ),
-                          _QuickButton(
-                            label: '复制译文',
-                            icon: Icons.copy_rounded,
-                            onTap: _copyResult,
                           ),
                         ],
                       ),
@@ -347,62 +338,84 @@ class _TranslationScreenState extends State<TranslationScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.memory_rounded, color: AppTheme.cyan),
-                          const SizedBox(width: 8),
-                          Text(
-                            '结果区',
-                            style: Theme.of(context).textTheme.titleMedium,
+                          const Text(
+                            '结果',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                           const Spacer(),
                           if (_result != null && _result!.sourceLabel.isNotEmpty)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppTheme.panelStrong,
                                 borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: AppTheme.borderMuted),
                               ),
                               child: Text(
                                 _result!.sourceLabel,
                                 style: const TextStyle(
                                   fontSize: 10,
                                   color: AppTheme.ink,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
                         ],
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 10),
                       if (_isLoading)
                         const LinearProgressIndicator(
                           color: AppTheme.accent,
                           backgroundColor: AppTheme.panelStrong,
                         )
                       else
-                        Text(
+                        SelectableText(
                           _result?.hasResult == true
                               ? _result!.translated
-                              : '译文会显示在这里。推荐把高频句子收藏到学习页，再通过聊天键盘插入到 Zalo。',
+                              : '译文会显示在这里。',
                           style: TextStyle(
-                            fontSize: _result?.hasResult == true ? 24 : 14,
+                            fontSize: _result?.hasResult == true ? 22 : 14,
                             height: 1.45,
                             fontWeight: _result?.hasResult == true
                                 ? FontWeight.w800
-                                : FontWeight.w500,
+                                : FontWeight.w600,
                             color: _result?.hasResult == true
                                 ? AppTheme.ink
                                 : AppTheme.inkMuted,
                           ),
                         ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _QuickButton(
+                            label: '复制译文',
+                            icon: Icons.copy_rounded,
+                            onTap: _copyResult,
+                          ),
+                          _QuickButton(
+                            label: '朗读',
+                            icon: Icons.volume_up_rounded,
+                            onTap: _speakResult,
+                          ),
+                        ],
+                      ),
                       if (_result?.normalized != null) ...[
                         const SizedBox(height: 12),
                         _InfoStrip(
@@ -416,7 +429,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                         _InfoStrip(
                           icon: Icons.auto_stories_rounded,
                           title: '汉越词根',
-                          body: '这个结果和“${_result!.hanZi}”有关，适合顺手加入学习页。',
+                          body: '该结果与“${_result!.hanZi}”相关，适合加入学习页。',
                         ),
                       ],
                       if (_result?.explanation != null) ...[
@@ -430,28 +443,6 @@ class _TranslationScreenState extends State<TranslationScreen> {
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              const Row(
-                children: const [
-                  const Expanded(
-                    child: _FeatureCard(
-                      icon: Icons.translate_rounded,
-                      title: '结果即学习',
-                      body: '高频表达、俚语、汉越词根直接在结果页展开。',
-                      color: AppTheme.accent,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: _FeatureCard(
-                      icon: Icons.chat_bubble_outline_rounded,
-                      title: '聊天辅助',
-                      body: '后续从这里直连自定义输入法和截图 OCR。',
-                      color: AppTheme.amber,
-                    ),
-                  ),
-                ],
               ),
             ],
           ),
@@ -494,7 +485,7 @@ class _QuickButton extends StatelessWidget {
               style: const TextStyle(
                 color: AppTheme.ink,
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ],
@@ -537,7 +528,7 @@ class _InfoStrip extends StatelessWidget {
                   title,
                   style: const TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
                     color: AppTheme.ink,
                   ),
                 ),
@@ -559,57 +550,3 @@ class _InfoStrip extends StatelessWidget {
   }
 }
 
-class _FeatureCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String body;
-  final Color color;
-
-  const _FeatureCard({
-    required this.icon,
-    required this.title,
-    required this.body,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 18),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.ink,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              body,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.inkMuted,
-                height: 1.45,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
