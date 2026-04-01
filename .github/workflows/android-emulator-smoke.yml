@@ -8,10 +8,14 @@ on:
       - master
   pull_request:
 
+concurrency:
+  group: android-emulator-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   emulator-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -43,6 +47,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           script: cd fanyi_app && adb devices && flutter devices && flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554
+          emulator-options: -no-snapshot -no-boot-anim -gpu swiftshader_indirect
 
       - name: Upload emulator screenshots
         if: always()
