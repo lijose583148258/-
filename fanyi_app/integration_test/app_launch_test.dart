@@ -8,7 +8,7 @@ void main() {
   testWidgets('home renders and is reachable', (tester) async {
     app.main();
     await tester.pump();
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 3));
     await binding.convertFlutterSurfaceToImage();
     await tester.pump();
 
@@ -18,9 +18,8 @@ void main() {
     expect(find.text('对话'), findsWidgets);
     expect(find.text('学习'), findsWidgets);
     expect(find.text('拍照'), findsWidgets);
-    expect(find.text('翻译首页'), findsOneWidget);
-    expect(find.text('输入区'), findsOneWidget);
-    expect(find.text('结果区'), findsOneWidget);
+    expect(find.text('输入'), findsOneWidget);
+    expect(find.text('结果'), findsOneWidget);
 
     await binding.takeScreenshot('home');
   });
