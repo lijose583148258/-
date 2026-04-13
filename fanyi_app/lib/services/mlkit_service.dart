@@ -11,6 +11,7 @@ class MlKitService {
   static bool _viZhModelReady = false;
 
   static bool get isAvailable => _isAvailable;
+  static bool get isInitialized => _initialized;
   static bool get isDownloading =>
       _isAvailable && (!_zhViModelReady || !_viZhModelReady);
 
@@ -97,6 +98,12 @@ class MlKitService {
   }
 
   static Future<MlKitStatus> getStatus() async {
+    if (!_initialized) {
+      try {
+        await initialize();
+      } catch (_) {}
+    }
+
     if (!_isAvailable) {
       return MlKitStatus(
         available: false,

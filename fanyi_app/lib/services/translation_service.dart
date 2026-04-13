@@ -59,6 +59,14 @@ class TranslationService {
       }
     }
 
+    if (!MlKitService.isInitialized) {
+      try {
+        await MlKitService.initialize();
+      } catch (_) {
+        // Chinese Android ROMs may not support ML Kit dependencies.
+      }
+    }
+
     if (MlKitService.isAvailable) {
       final mlResult = resolvedDirection == zhToVi
           ? await MlKitService.zhToVi(trimmed)
