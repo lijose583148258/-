@@ -1,81 +1,114 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 class SpeechService {
-  static final SpeechToText _speech = SpeechToText();
+  static SpeechToText? _speech;
+  static Future<bool>? _initializing;
   static bool _available = false;
   static bool _initialized = false;
 
-  static Future<bool> initialize() async {
-    if (_initialized) return _available;
+  static Future<bool> initialize() {
+    if (_initialized) return Future<bool>.value(_available);
+    return _initializing ??= _initializeSafely();
+  }
 
-    final status = await Permission.microphone.request();
-    if (!status.isGranted) {
-      debugPrint('Microphone permission was denied.');
-      _initialized = true;
+  static Future<bool> _initializeSafely() async {
+    try {
+      final status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        debugPrint('Microphone permission was denied.');
+        _available = false;
+        return false;
+      }
+
+      final speech = _speech ??= SpeechToText();
+      _available = await speech.initialize(
+        onError: (error) => debugPrint('STT error: ${error.errorMsg}'),
+        onStatus: (status) => debugPrint('STT status: $status'),
+      );
+      return _available;
+    } catch (error, stack) {
       _available = false;
+      debugPrint('Speech recognition is unavailable: $error\n$stack');
       return false;
+    } finally {
+      _initialized = true;
+      _initializing = null;
     }
-
-    _available = await _speech.initialize(
-      onError: (error) => debugPrint('STT error: ${error.errorMsg}'),
-      onStatus: (status) => debugPrint('STT status: $status'),
-    );
-
-    _initialized = true;
-    return _available;
   }
 
   static Future<bool> startListening({
     required String localeId,
-    required Function(String text) onResult,
+    required ValueChanged<String> onResult,
     VoidCallback? onDone,
   }) async {
-    if (!_available) return false;
-    if (_speech.isListening) {
-      await _speech.stop();
-    }
+    try {
+      if (!_initialized && !await initialize()) return false;
+      final speech = _speech;
+      if (!_available || speech == null) return false;
 
-    await _speech.listen(
-      onResult: (SpeechRecognitionResult result) {
-        onResult(result.recognizedWords);
-        if (result.finalResult && onDone != null) {
-          onDone();
-        }
-      },
-      localeId: localeId,
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
-      listenOptions: SpeechListenOptions(
+      if (speech.isListening) {
+        await speech.stop();
+      }
+
+      await speech.listen(
+        onResult: (SpeechRecognitionResult result) {
+          onResult(result.recognizedWords);
+          if (result.finalResult) onDone?.call();
+        },
+        localeId: localeId,
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 3),
         partialResults: true,
         cancelOnError: true,
-      ),
-    );
-
-    return true;
+      );
+      return true;
+    } catch (error, stack) {
+      debugPrint('Speech recognition could not start: $error\n$stack');
+      return false;
+    }
   }
 
   static Future<void> stopListening() async {
-    if (_speech.isListening) {
-      await _speech.stop();
+    try {
+      final speech = _speech;
+      if (speech != null && speech.isListening) await speech.stop();
+    } catch (error) {
+      debugPrint('Speech recognition could not stop: $error');
     }
   }
 
   static Future<void> cancelListening() async {
-    if (_speech.isListening) {
-      await _speech.cancel();
+    try {
+      final speech = _speech;
+      if (speech != null && speech.isListening) await speech.cancel();
+    } catch (error) {
+      debugPrint('Speech recognition could not be cancelled: $error');
     }
   }
 
-  static bool get isListening => _speech.isListening;
+  static bool get isListening {
+    try {
+      return _speech?.isListening ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static bool get isAvailable => _available;
 
   static Future<List<String>> getSupportedLocales() async {
-    if (!_available) return [];
-    final locales = await _speech.locales();
-    return locales.map((locale) => locale.localeId).toList();
+    try {
+      final speech = _speech;
+      if (!_available || speech == null) return const [];
+      final locales = await speech.locales();
+      return locales.map((locale) => locale.localeId).toList();
+    } catch (error) {
+      debugPrint('Speech locale discovery failed: $error');
+      return const [];
+    }
   }
 
   static Future<bool> isVietnameseSpeechSupported() async {

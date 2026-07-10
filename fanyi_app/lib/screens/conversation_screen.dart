@@ -30,7 +30,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Future<void> _initSpeech() async {
     final available = await SpeechService.initialize();
-    final viAvailable = await SpeechService.isVietnameseSpeechSupported();
+    final viAvailable = available
+        ? await SpeechService.isVietnameseSpeechSupported()
+        : false;
     if (!mounted) return;
     setState(() {
       _speechAvailable = available;
@@ -50,13 +52,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _liveText = '';
     });
 
-    await SpeechService.startListening(
+    final started = await SpeechService.startListening(
       localeId: chineseSource ? 'zh-CN' : 'vi-VN',
       onResult: (text) {
         if (mounted) setState(() => _liveText = text);
       },
       onDone: () => _stopAndTranslate(chineseSource),
     );
+    if (!started && mounted) {
+      setState(() {
+        _isListening = false;
+        _liveText = '';
+      });
+      _showSpeechUnavailable();
+    }
   }
 
   Future<void> _stopAndTranslate(bool chineseSource) async {
@@ -74,7 +83,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     final result = await TranslationService.translate(
       original,
-      direction: chineseSource ? TranslationService.zhToVi : TranslationService.viToZh,
+      direction: chineseSource
+          ? TranslationService.zhToVi
+          : TranslationService.viToZh,
     );
 
     if (!mounted) return;
@@ -91,10 +102,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       );
     });
 
-    await TtsService.speak(
-      result.translated,
-      isVietnamese: chineseSource,
-    );
+    await TtsService.speak(result.translated, isVietnamese: chineseSource);
   }
 
   Future<void> _manualInput(bool chineseSource) async {
@@ -109,9 +117,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             autofocus: true,
             minLines: 2,
             maxLines: 4,
-            decoration: const InputDecoration(
-              hintText: '输入后会直接翻译并朗读。',
-            ),
+            decoration: const InputDecoration(hintText: '输入后会直接翻译并朗读。'),
           ),
           actions: [
             TextButton(
@@ -134,9 +140,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   void _showSpeechUnavailable() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('当前设备无法使用语音识别，请改用手动输入。')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('当前设备无法使用语音识别，请改用手动输入。')));
   }
 
   Future<void> _onInputPressed(bool chineseSource) async {
@@ -165,12 +171,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   @override
+  void dispose() {
+    SpeechService.cancelListening().ignore();
+    TtsService.stop().ignore();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final statusText = !_speechAvailable
         ? '语音不可用，改用手动输入。'
         : _isListening
-            ? (_listeningChineseSource ? '正在听中文：$_liveText' : '正在听越南语：$_liveText')
-            : '点一下开始说话，再点一下停止并翻译。';
+        ? (_listeningChineseSource ? '正在听中文：$_liveText' : '正在听越南语：$_liveText')
+        : '点一下开始说话，再点一下停止并翻译。';
 
     return Scaffold(
       appBar: AppBar(
@@ -201,7 +214,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.record_voice_over_rounded, size: 18, color: AppTheme.ink),
+                      const Icon(
+                        Icons.record_voice_over_rounded,
+                        size: 18,
+                        color: AppTheme.ink,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -218,15 +235,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       ),
                       if (_speechAvailable)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
-                            color: (_vietnameseSpeechAvailable ? AppTheme.cyan : AppTheme.amber)
-                                .withValues(alpha: 0.18),
+                            color:
+                                (_vietnameseSpeechAvailable
+                                        ? AppTheme.cyan
+                                        : AppTheme.amber)
+                                    .withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(color: AppTheme.borderMuted),
                           ),
                           child: Text(
-                            _vietnameseSpeechAvailable ? 'VI STT OK' : 'VI STT LIMITED',
+                            _vietnameseSpeechAvailable
+                                ? 'VI STT OK'
+                                : 'VI STT LIMITED',
                             style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
@@ -264,8 +289,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           active: _isListening && _listeningChineseSource,
                           icon: _speechAvailable
                               ? (_isListening && _listeningChineseSource
-                                  ? Icons.stop_rounded
-                                  : Icons.mic_rounded)
+                                    ? Icons.stop_rounded
+                                    : Icons.mic_rounded)
                               : Icons.keyboard_rounded,
                           onPressed: () => _onInputPressed(true),
                         ),
@@ -279,8 +304,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           active: _isListening && !_listeningChineseSource,
                           icon: _speechAvailable
                               ? (_isListening && !_listeningChineseSource
-                                  ? Icons.stop_rounded
-                                  : Icons.mic_rounded)
+                                    ? Icons.stop_rounded
+                                    : Icons.mic_rounded)
                               : Icons.keyboard_rounded,
                           onPressed: () => _onInputPressed(false),
                         ),
@@ -331,14 +356,12 @@ class _DualActionButton extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: active ? Colors.white.withValues(alpha: 0.18) : color.withValues(alpha: 0.18),
+              color: active
+                  ? Colors.white.withValues(alpha: 0.18)
+                  : color.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(
-              icon,
-              color: active ? Colors.white : color,
-              size: 22,
-            ),
+            child: Icon(icon, color: active ? Colors.white : color, size: 22),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -374,9 +397,7 @@ class _DualActionButton extends StatelessWidget {
 class _ConversationCard extends StatelessWidget {
   final _ConversationEntry entry;
 
-  const _ConversationCard({
-    required this.entry,
-  });
+  const _ConversationCard({required this.entry});
 
   @override
   Widget build(BuildContext context) {
@@ -393,7 +414,10 @@ class _ConversationCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: pillColor.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(999),
@@ -459,7 +483,11 @@ class _ConversationEmptyState extends StatelessWidget {
             padding: EdgeInsets.all(20),
             child: Column(
               children: [
-                Icon(Icons.chat_bubble_outline_rounded, size: 44, color: AppTheme.inkMuted),
+                Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  size: 44,
+                  color: AppTheme.inkMuted,
+                ),
                 SizedBox(height: 12),
                 Text(
                   '这里会保存最近的对话翻译。',
@@ -501,4 +529,3 @@ class _ConversationEntry {
     required this.sourceLabel,
   });
 }
-

@@ -17,20 +17,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: "3.44.4"
+          cache: true
 
-      - name: Bootstrap platform files
-        working-directory: fanyi_app
-        run: flutter create --org com.fanyitong --project-name fanyi_tong --platforms=android .
+      - name: Create validation log directory
+        run: mkdir -p artifacts
 
       - name: Install dependencies
         working-directory: fanyi_app
@@ -42,7 +42,12 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          script: cd fanyi_app && adb devices && flutter devices && flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554
+          script: |
+            set -o pipefail
+            cd fanyi_app
+            adb devices | tee ../artifacts/adb-devices.log
+            flutter devices | tee ../artifacts/flutter-devices.log
+            flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554 2>&1 | tee ../artifacts/flutter-drive.log
 
       - name: Upload emulator screenshots
         if: always()
@@ -50,5 +55,13 @@ jobs:
         with:
           name: emulator-screenshots
           path: fanyi_app/build/integration_test/screenshots
+          if-no-files-found: warn
+
+      - name: Upload emulator logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-validation-logs
+          path: artifacts
           if-no-files-found: warn
 
