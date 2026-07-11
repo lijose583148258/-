@@ -47,11 +47,15 @@ jobs:
           arch: x86_64
           profile: pixel_6
           script: |
-            set -o pipefail
+            set -eu
             cd fanyi_app
-            adb devices | tee ../artifacts/adb-devices.log
-            flutter devices | tee ../artifacts/flutter-devices.log
-            flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554 2>&1 | tee ../artifacts/flutter-drive.log
+            adb devices > ../artifacts/adb-devices.log
+            flutter devices > ../artifacts/flutter-devices.log
+            set +e
+            flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554 > ../artifacts/flutter-drive.log 2>&1
+            status=$?
+            cat ../artifacts/flutter-drive.log
+            exit $status
 
       - name: Upload emulator screenshots
         if: always()
