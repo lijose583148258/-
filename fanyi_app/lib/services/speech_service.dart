@@ -9,14 +9,43 @@ class SpeechService {
   static bool _available = false;
   static bool _initialized = false;
 
-  static Future<bool> initialize() {
-    if (_initialized) return Future<bool>.value(_available);
-    return _initializing ??= _initializeSafely();
+  static Future<bool> initialize({
+    bool requestPermission = true,
+    bool forceRetry = false,
+  }) {
+    if (_initializing != null) return _initializing!;
+    if (_initialized && !forceRetry) return Future<bool>.value(_available);
+    if (forceRetry) {
+      _initialized = false;
+      _available = false;
+    }
+    return _initializing ??= _initializeSafely(
+      requestPermission: requestPermission,
+    );
   }
 
-  static Future<bool> _initializeSafely() async {
+  static Future<bool> refreshAvailability() async {
     try {
-      final status = await Permission.microphone.request();
+      final status = await Permission.microphone.status;
+      if (!status.isGranted) {
+        _available = false;
+        return false;
+      }
+      return initialize(requestPermission: false, forceRetry: !_available);
+    } catch (error) {
+      debugPrint('Microphone permission status is unavailable: $error');
+      _available = false;
+      return false;
+    }
+  }
+
+  static Future<bool> _initializeSafely({
+    required bool requestPermission,
+  }) async {
+    try {
+      final status = requestPermission
+          ? await Permission.microphone.request()
+          : await Permission.microphone.status;
       if (!status.isGranted) {
         debugPrint('Microphone permission was denied.');
         _available = false;

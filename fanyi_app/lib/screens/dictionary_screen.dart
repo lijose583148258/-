@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/device_compatibility_service.dart';
 import '../services/local_db_service.dart';
 import '../services/tts_service.dart';
 
@@ -70,9 +71,17 @@ class _DictionaryScreenState extends State<DictionaryScreen>
     final success = await TtsService.speakVietnamese(word);
     if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('设备不支持越南语朗读，请安装越南语语音包。'),
+        SnackBar(
+          content: const Text('设备不支持越南语朗读，请安装越南语语音包。'),
           behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: '语音包设置',
+            onPressed: () {
+              TtsService.reset().then(
+                (_) => DeviceCompatibilityService.openTextToSpeechSettings(),
+              );
+            },
+          ),
         ),
       );
     }

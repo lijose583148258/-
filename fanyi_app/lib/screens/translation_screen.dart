@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/app_action_service.dart';
+import '../services/device_compatibility_service.dart';
 import '../services/translation_service.dart';
 import '../services/tts_service.dart';
 import '../ui/app_theme.dart';
@@ -143,9 +144,19 @@ class _TranslationScreenState extends State<TranslationScreen> {
     setState(() => _isSpeaking = false);
 
     if (!success) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('当前设备缺少可用语音包，无法朗读。')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('当前设备缺少可用语音包，无法朗读。'),
+          action: SnackBarAction(
+            label: '语音包设置',
+            onPressed: () {
+              TtsService.reset().then(
+                (_) => DeviceCompatibilityService.openTextToSpeechSettings(),
+              );
+            },
+          ),
+        ),
+      );
     }
   }
 

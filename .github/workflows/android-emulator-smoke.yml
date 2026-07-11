@@ -12,6 +12,10 @@ jobs:
   emulator-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [24, 29, 34]
 
     steps:
       - name: Checkout
@@ -39,7 +43,7 @@ jobs:
       - name: Run integration smoke test on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
           script: |
@@ -53,7 +57,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-screenshots
+          name: emulator-screenshots-api-${{ matrix.api-level }}
           path: fanyi_app/build/integration_test/screenshots
           if-no-files-found: warn
 
@@ -61,7 +65,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-validation-logs
+          name: emulator-validation-logs-api-${{ matrix.api-level }}
           path: artifacts
           if-no-files-found: warn
 

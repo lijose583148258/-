@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/device_compatibility_service.dart';
 import '../services/speech_service.dart';
 import '../services/translation_service.dart';
 import '../services/tts_service.dart';
@@ -12,7 +13,8 @@ class ConversationScreen extends StatefulWidget {
   State<ConversationScreen> createState() => _ConversationScreenState();
 }
 
-class _ConversationScreenState extends State<ConversationScreen> {
+class _ConversationScreenState extends State<ConversationScreen>
+    with WidgetsBindingObserver {
   final List<_ConversationEntry> _messages = [];
 
   bool _speechAvailable = false;
@@ -25,11 +27,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
   @override
   void initState() {
     super.initState();
-    _initSpeech();
+    WidgetsBinding.instance.addObserver(this);
+    _initSpeech(requestPermission: true);
   }
 
-  Future<void> _initSpeech() async {
-    final available = await SpeechService.initialize();
+  Future<void> _initSpeech({bool requestPermission = false}) async {
+    final available = requestPermission
+        ? await SpeechService.initialize()
+        : await SpeechService.refreshAvailability();
     final viAvailable = available
         ? await SpeechService.isVietnameseSpeechSupported()
         : false;
@@ -38,6 +43,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _speechAvailable = available;
       _vietnameseSpeechAvailable = viAvailable;
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _initSpeech();
+    }
+  }
+
+  Future<void> _retrySpeech() async {
+    final available = await SpeechService.initialize(forceRetry: true);
+    final viAvailable = available
+        ? await SpeechService.isVietnameseSpeechSupported()
+        : false;
+    if (!mounted) return;
+    setState(() {
+      _speechAvailable = available;
+      _vietnameseSpeechAvailable = viAvailable;
+    });
+    if (!available) _showSpeechUnavailable();
   }
 
   Future<void> _startListening(bool chineseSource) async {
@@ -140,9 +165,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   void _showSpeechUnavailable() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('当前设备无法使用语音识别，请改用手动输入。')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('当前设备无法使用语音识别，请改用手动输入。'),
+        action: SnackBarAction(
+          label: '系统设置',
+          onPressed: () {
+            DeviceCompatibilityService.openAppDetailsSettings().ignore();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _onInputPressed(bool chineseSource) async {
@@ -172,6 +205,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     SpeechService.cancelListening().ignore();
     TtsService.stop().ignore();
     super.dispose();
@@ -259,6 +293,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               letterSpacing: 0.3,
                             ),
                           ),
+                        ),
+                      if (!_speechAvailable)
+                        TextButton.icon(
+                          onPressed: _retrySpeech,
+                          icon: const Icon(
+                            Icons.settings_voice_rounded,
+                            size: 16,
+                          ),
+                          label: const Text('检查权限'),
                         ),
                     ],
                   ),

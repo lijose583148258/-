@@ -78,6 +78,15 @@ class TtsService {
     }
   }
 
+  static Future<void> reset() async {
+    await stop();
+    _tts = null;
+    _initialized = false;
+    _initializing = null;
+    _available = false;
+    _viSupported = false;
+  }
+
   static Future<bool> get isViSupported async {
     if (!await _init()) return false;
     return _viSupported;

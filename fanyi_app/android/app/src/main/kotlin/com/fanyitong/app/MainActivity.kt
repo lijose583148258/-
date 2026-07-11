@@ -1,6 +1,8 @@
 ﻿package com.fanyitong.app
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import io.flutter.embedding.android.FlutterActivity
@@ -61,6 +63,41 @@ class MainActivity : FlutterActivity() {
             }
         }
 
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "fanyitong/device_support",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getDeviceProfile" -> result.success(
+                    mapOf(
+                        "manufacturer" to Build.MANUFACTURER.orEmpty(),
+                        "brand" to Build.BRAND.orEmpty(),
+                        "model" to Build.MODEL.orEmpty(),
+                        "sdkInt" to Build.VERSION.SDK_INT,
+                    ),
+                )
+
+                "openAppDetailsSettings" -> result.success(
+                    openSettings(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", packageName, null),
+                        ),
+                    ),
+                )
+
+                "openTextToSpeechSettings" -> result.success(
+                    openSettings(Intent("com.android.settings.TTS_SETTINGS")),
+                )
+
+                "openAccessibilitySettings" -> result.success(
+                    openSettings(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)),
+                )
+
+                else -> result.notImplemented()
+            }
+        }
+
         appActionsChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "fanyitong/app_actions",
@@ -113,6 +150,15 @@ class MainActivity : FlutterActivity() {
         val action = pendingLaunchAction ?: return
         appActionsChannel?.invokeMethod("launchAction", action)
         pendingLaunchAction = null
+    }
+
+    private fun openSettings(intent: Intent): Boolean {
+        return try {
+            startActivity(intent.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun isImeEnabled(): Boolean {
