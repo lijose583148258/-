@@ -42,6 +42,8 @@ jobs:
 
       - name: Build integration-test APK before booting the emulator
         working-directory: fanyi_app
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
         run: flutter build apk --debug --target integration_test/app_launch_test.dart
 
       - name: Run integration smoke test on emulator
