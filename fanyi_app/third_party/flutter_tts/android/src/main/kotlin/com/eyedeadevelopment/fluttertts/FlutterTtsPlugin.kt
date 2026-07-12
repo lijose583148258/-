@@ -81,6 +81,7 @@ class FlutterTtsPlugin : MethodCallHandler, FlutterPlugin {
     private fun ensureTtsInitialized(): Boolean {
         if (tts != null) return true
         val applicationContext = context ?: return false
+        Log.d(tag, "Creating TextToSpeech after first Flutter method call")
         tts = TextToSpeech(applicationContext, onInitListenerWithoutCallback)
         return true
     }
