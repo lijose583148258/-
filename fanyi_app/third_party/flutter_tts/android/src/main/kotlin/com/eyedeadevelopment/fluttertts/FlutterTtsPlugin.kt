@@ -71,7 +71,18 @@ class FlutterTtsPlugin : MethodCallHandler, FlutterPlugin {
         methodChannel!!.setMethodCallHandler(this)
         handler = Handler(Looper.getMainLooper())
         bundle = Bundle()
-        tts = TextToSpeech(context, onInitListenerWithoutCallback)
+    }
+
+    /**
+     * Creating a [TextToSpeech] instance binds an Android system service. Keep
+     * that work out of the Flutter engine attach path so app cold start does
+     * not depend on an installed TTS engine.
+     */
+    private fun ensureTtsInitialized(): Boolean {
+        if (tts != null) return true
+        val applicationContext = context ?: return false
+        tts = TextToSpeech(applicationContext, onInitListenerWithoutCallback)
+        return true
     }
 
     /** Android Plugin APIs  */
@@ -81,7 +92,8 @@ class FlutterTtsPlugin : MethodCallHandler, FlutterPlugin {
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         stop()
-        tts!!.shutdown()
+        tts?.shutdown()
+        tts = null
         context = null
         methodChannel!!.setMethodCallHandler(null)
         methodChannel = null
@@ -276,6 +288,10 @@ class FlutterTtsPlugin : MethodCallHandler, FlutterPlugin {
     override fun onMethodCall(call: MethodCall, result: Result) {
         // If TTS is still loading
         synchronized(this@FlutterTtsPlugin) {
+            if (!ensureTtsInitialized()) {
+                result.error("TtsError", "TextToSpeech is not attached to an Android context", null)
+                return
+            }
             if (ttsStatus == null) {
                 // Suspend method call until the TTS engine is ready
                 val suspendedCall = Runnable { onMethodCall(call, result) }
@@ -689,7 +705,7 @@ class FlutterTtsPlugin : MethodCallHandler, FlutterPlugin {
     private fun stop() {
         if (awaitSynthCompletion) synth = false
         if (awaitSpeakCompletion) speaking = false
-        tts!!.stop()
+        tts?.stop()
     }
 
     private val maxSpeechInputLength: Int
