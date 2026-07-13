@@ -29,13 +29,8 @@ class DeviceCompatibilityProfile {
     String model = '',
     int sdkInt = 0,
   }) {
-    final normalized = manufacturer.trim().toLowerCase();
-    final family = switch (normalized) {
-      'xiaomi' || 'redmi' || 'poco' => DeviceFamily.xiaomi,
-      'oppo' || 'oneplus' || 'realme' => DeviceFamily.oppo,
-      'honor' => DeviceFamily.honor,
-      _ => DeviceFamily.generic,
-    };
+    final normalized = _normalizeManufacturer(manufacturer);
+    final family = _familyForManufacturer(normalized);
     return DeviceCompatibilityProfile(
       family: family,
       manufacturer: manufacturer.trim(),
@@ -75,6 +70,31 @@ class DeviceCompatibilityProfile {
       '输入法和无障碍服务均由系统设置显式启用，应用不会在后台自动申请特殊权限。',
     ],
   };
+  static String _normalizeManufacturer(String manufacturer) {
+    return manufacturer.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s_\-]+'),
+      '',
+    );
+  }
+
+  static DeviceFamily _familyForManufacturer(String normalized) {
+    if (normalized.isEmpty) return DeviceFamily.generic;
+    if (normalized.contains('xiaomi') ||
+        normalized.contains('redmi') ||
+        normalized.contains('poco')) {
+      return DeviceFamily.xiaomi;
+    }
+    if (normalized.contains('oppo') ||
+        normalized.contains('oneplus') ||
+        normalized.contains('realme') ||
+        normalized.contains('oplus')) {
+      return DeviceFamily.oppo;
+    }
+    if (normalized.contains('honor') || normalized.contains('荣耀')) {
+      return DeviceFamily.honor;
+    }
+    return DeviceFamily.generic;
+  }
 }
 
 class DeviceCompatibilityService {
