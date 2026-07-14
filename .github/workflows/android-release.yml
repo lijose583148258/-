@@ -110,16 +110,24 @@ jobs:
         run: flutter pub get
 
       - name: Static analyze
-        run: flutter analyze 2>&1 | tee ../artifacts/flutter-analyze.log
+        run: |
+          set -o pipefail
+          flutter analyze 2>&1 | tee ../artifacts/flutter-analyze.log
 
       - name: Unit tests
-        run: flutter test 2>&1 | tee ../artifacts/flutter-test.log
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee ../artifacts/flutter-test.log
 
       - name: Build APK
-        run: flutter build apk --release 2>&1 | tee ../artifacts/flutter-build-apk.log
+        run: |
+          set -o pipefail
+          flutter build apk --release 2>&1 | tee ../artifacts/flutter-build-apk.log
 
       - name: Build AAB
-        run: flutter build appbundle --release 2>&1 | tee ../artifacts/flutter-build-aab.log
+        run: |
+          set -o pipefail
+          flutter build appbundle --release 2>&1 | tee ../artifacts/flutter-build-aab.log
 
       - name: Verify Android artifacts
         run: |
