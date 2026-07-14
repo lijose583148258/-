@@ -1,4 +1,4 @@
-﻿package com.fanyitong.app
+package com.fanyitong.app
 
 import android.content.ClipboardManager
 import android.content.Context
@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
 import android.widget.Button
 import android.widget.TextView
 import org.json.JSONObject
@@ -14,24 +15,29 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.LinkedHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 class FanyiTongInputMethodService : InputMethodService() {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val requestEpoch = AtomicInteger(0)
     private val translationCache = object : LinkedHashMap<String, String>(20, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
             return size > 20
         }
     }
 
-    private lateinit var statusView: TextView
-    private lateinit var previewView: TextView
-    private lateinit var directionButton: Button
+    private var statusView: TextView? = null
+    private var previewView: TextView? = null
+    private var directionButton: Button? = null
 
+    @Volatile
+    private var destroyed = false
     private var zhToVi = true
     private var lastTranslated = ""
 
     override fun onCreateInputView(): View {
+        destroyed = false
         val view = layoutInflater.inflate(R.layout.ime_translation_view, null)
         statusView = view.findViewById(R.id.statusText)
         previewView = view.findViewById(R.id.previewText)
@@ -47,11 +53,13 @@ class FanyiTongInputMethodService : InputMethodService() {
             insertLastResult()
         }
         view.findViewById<Button>(R.id.clearButton).setOnClickListener {
+            requestEpoch.incrementAndGet()
             lastTranslated = ""
-            previewView.text = getString(R.string.ime_empty_preview)
+            previewView?.text = getString(R.string.ime_empty_preview)
             setStatus("Cache cleared.")
         }
-        directionButton.setOnClickListener {
+        directionButton?.setOnClickListener {
+            requestEpoch.incrementAndGet()
             zhToVi = !zhToVi
             updateDirectionButton()
             setStatus(if (zhToVi) "Direction set to ZH -> VI." else "Direction set to VI -> ZH.")
@@ -59,8 +67,26 @@ class FanyiTongInputMethodService : InputMethodService() {
 
         updateDirectionButton()
         setStatus("Select text or use clipboard translate.")
-        previewView.text = getString(R.string.ime_empty_preview)
+        previewView?.text = getString(R.string.ime_empty_preview)
         return view
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        requestEpoch.incrementAndGet()
+        super.onFinishInputView(finishingInput)
+    }
+
+    override fun onDestroy() {
+        destroyed = true
+        requestEpoch.incrementAndGet()
+        mainHandler.removeCallbacksAndMessages(null)
+        statusView = null
+        previewView = null
+        directionButton = null
+        synchronized(translationCache) {
+            translationCache.clear()
+        }
+        super.onDestroy()
     }
 
     private fun translateSelection() {
@@ -69,11 +95,15 @@ class FanyiTongInputMethodService : InputMethodService() {
             return
         }
 
-        val selectedText = connection.getSelectedText(0)?.toString().orEmpty()
-        val sourceText = if (selectedText.isNotBlank()) {
-            selectedText
-        } else {
-            connection.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString().orEmpty()
+        val sourceText = try {
+            val selectedText = connection.getSelectedText(0)?.toString().orEmpty()
+            if (selectedText.isNotBlank()) {
+                selectedText
+            } else {
+                connection.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString().orEmpty()
+            }
+        } catch (_: Exception) {
+            ""
         }
 
         if (sourceText.isBlank()) {
@@ -81,25 +111,34 @@ class FanyiTongInputMethodService : InputMethodService() {
             return
         }
 
-        translateAndInsert(sourceText.trim())
+        translateAndInsert(sourceText.trim(), connection)
     }
 
     private fun translateClipboard() {
-        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = manager.primaryClip
-        val text = clip
-            ?.takeIf { it.itemCount > 0 }
-            ?.getItemAt(0)
-            ?.coerceToText(this)
-            ?.toString()
-            .orEmpty()
+        val text = try {
+            val manager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = manager?.primaryClip
+            clip
+                ?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)
+                ?.coerceToText(this)
+                ?.toString()
+                .orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
 
         if (text.isBlank()) {
-            setStatus("Clipboard is empty.")
+            setStatus("Clipboard is empty or unavailable.")
             return
         }
 
-        translateAndInsert(text.trim())
+        val connection = currentInputConnection
+        if (connection == null) {
+            setStatus("No active input field.")
+            return
+        }
+        translateAndInsert(text.trim(), connection)
     }
 
     private fun insertLastResult() {
@@ -108,79 +147,116 @@ class FanyiTongInputMethodService : InputMethodService() {
             return
         }
 
-        currentInputConnection?.commitText(lastTranslated, 1)
-        setStatus("Inserted the last translation.")
-    }
-
-    private fun translateAndInsert(text: String) {
-        val cacheKey = cacheKey(text)
-        val cached = getCachedTranslation(cacheKey)
-        if (cached != null) {
-            lastTranslated = cached
-            previewView.text = cached
-            val connection = currentInputConnection
-            if (connection == null) {
-                setStatus("Translation ready, but input field is unavailable.")
+        try {
+            val connection = currentInputConnection ?: run {
+                setStatus("No active input field.")
                 return
             }
-            connection.commitText(cached, 1)
-            setStatus("Inserted cached translation.")
+            connection.commitText(lastTranslated, 1)
+            setStatus("Inserted the last translation.")
+        } catch (_: Exception) {
+            setStatus("The current input field rejected the text.")
+        }
+    }
+
+    private fun translateAndInsert(rawText: String, targetConnection: InputConnection) {
+        if (destroyed) return
+        val text = rawText.take(MAX_SOURCE_LENGTH)
+        val directionZhToVi = zhToVi
+        val cacheKey = cacheKey(text, directionZhToVi)
+        val cached = getCachedTranslation(cacheKey)
+        if (cached != null) {
+            publishTranslation(cached, targetConnection, fromCache = true)
             return
         }
 
+        val epoch = requestEpoch.incrementAndGet()
         setStatus("Translating...")
-        previewView.text = text
+        previewView?.text = text
 
-        thread {
-            try {
-                val translated = requestTranslation(text)
-                storeCachedTranslation(cacheKey, translated)
-                mainHandler.post {
-                    lastTranslated = translated
-                    previewView.text = translated
-                    val connection = currentInputConnection
-                    if (connection == null) {
-                        setStatus("Translation ready, but input field is unavailable.")
-                        return@post
-                    }
-
-                    connection.commitText(translated, 1)
-                    setStatus("Inserted translation. Review it before sending.")
-                }
+        thread(name = "FanyiTong-IME-Translate", isDaemon = true) {
+            val translated = try {
+                requestTranslation(text, directionZhToVi)
             } catch (_: Exception) {
-                mainHandler.post {
+                null
+            }
+
+            mainHandler.post {
+                if (destroyed || epoch != requestEpoch.get()) return@post
+                if (translated == null) {
                     setStatus("Translation failed. Try again in a moment.")
+                    return@post
                 }
+                storeCachedTranslation(cacheKey, translated)
+                publishTranslation(translated, targetConnection, fromCache = false)
             }
         }
     }
 
-    private fun requestTranslation(text: String): String {
-        val langPair = if (zhToVi) "zh-CN|vi" else "vi|zh-CN"
-        val encoded = URLEncoder.encode(text, "UTF-8")
+    private fun publishTranslation(
+        translated: String,
+        targetConnection: InputConnection,
+        fromCache: Boolean,
+    ) {
+        if (destroyed) return
+        lastTranslated = translated
+        previewView?.text = translated
+
+        val activeConnection = currentInputConnection
+        if (activeConnection == null || activeConnection !== targetConnection) {
+            setStatus("Translation ready. Tap Insert after returning to the original field.")
+            return
+        }
+
+        try {
+            activeConnection.commitText(translated, 1)
+            setStatus(
+                if (fromCache) {
+                    "Inserted cached translation."
+                } else {
+                    "Inserted translation. Review it before sending."
+                },
+            )
+        } catch (_: Exception) {
+            setStatus("Translation ready, but the input field rejected it. Tap Insert to retry.")
+        }
+    }
+
+    private fun requestTranslation(text: String, directionZhToVi: Boolean): String {
+        val langPair = if (directionZhToVi) "zh-CN|vi" else "vi|zh-CN"
+        val encoded = URLEncoder.encode(text.take(MAX_NETWORK_TEXT_LENGTH), "UTF-8")
         val url = URL("https://api.mymemory.translated.net/get?q=$encoded&langpair=$langPair")
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            connectTimeout = 7000
-            readTimeout = 7000
+            connectTimeout = NETWORK_TIMEOUT_MS
+            readTimeout = NETWORK_TIMEOUT_MS
+            useCaches = false
+            setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "FanyiTong-IME/1.0")
         }
 
-        return connection.inputStream.bufferedReader().use { reader ->
-            val body = reader.readText()
+        return try {
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                throw IllegalStateException("Translation HTTP $responseCode")
+            }
+            val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             val translated = JSONObject(body)
                 .optJSONObject("responseData")
                 ?.optString("translatedText")
                 .orEmpty()
+                .trim()
             if (translated.isBlank()) {
-                throw IllegalStateException("Translation failed")
+                throw IllegalStateException("Translation returned no text")
             }
             translated
+        } finally {
+            connection.disconnect()
         }
     }
 
-    private fun cacheKey(text: String): String {
-        return "${if (zhToVi) "zh->vi" else "vi->zh"}|${text.trim()}"
+    private fun cacheKey(text: String, directionZhToVi: Boolean): String {
+        return "${if (directionZhToVi) "zh->vi" else "vi->zh"}|${text.trim()}"
     }
 
     private fun getCachedTranslation(key: String): String? {
@@ -196,10 +272,16 @@ class FanyiTongInputMethodService : InputMethodService() {
     }
 
     private fun updateDirectionButton() {
-        directionButton.text = if (zhToVi) "ZH -> VI" else "VI -> ZH"
+        directionButton?.text = if (zhToVi) "ZH -> VI" else "VI -> ZH"
     }
 
     private fun setStatus(message: String) {
-        statusView.text = message
+        if (!destroyed) statusView?.text = message
+    }
+
+    private companion object {
+        const val NETWORK_TIMEOUT_MS = 7_000
+        const val MAX_SOURCE_LENGTH = 1_500
+        const val MAX_NETWORK_TEXT_LENGTH = 600
     }
 }
