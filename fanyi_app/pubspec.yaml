@@ -1,6 +1,6 @@
 name: fanyi_tong
-description: 翻译通 - 中越翻译学习App，完全离线可用，无需服务器，兼容所有中国国内安卓手机。
-version: 1.0.1+2
+description: 翻译通 - 中越翻译与学习 App，支持本地词典、在线兜底、语音输入和系统语音朗读。
+version: 1.0.2+3
 publish_to: none
 
 environment:
@@ -19,22 +19,19 @@ dependencies:
   path: ^1.9.0             # 路径拼接工具
 
   # ── Google ML Kit 翻译（境外/有 Google Play 服务时自动启用）──
-  # 当手机上有 Google Play 服务时（三星/索尼/摩托罗拉/出国后的国际版手机），
-  # 自动使用 ML Kit 的神经机器翻译模型（质量等同谷歌翻译网页版，完全离线）。
-  # 在中国华为/小米等无 Google Play 服务的手机上，初始化时会抛出异常，
-  # 我们捕获异常后自动降级到 MyMemory API，用户完全无感知。
+  # 有可用 ML Kit 运行环境且模型下载完成时，使用设备端翻译。
+  # 不可用、初始化失败或超时时，自动降级到在线翻译或本地词典。
   google_mlkit_translation:
     path: third_party/google_mlkit_translation
 
   # ── 网络（在线翻译兜底）──────────────────────────────
-  # http: 纯 Dart HTTP，不依赖任何平台服务
+  # http: 纯 Dart HTTP，不依赖平台插件
   http: ^1.6.0
 
-  # ── 语音功能（调用手机系统引擎，不依赖 Google）────────
-  # flutter_tts: 调用 Android TextToSpeech API（华为/小米/OPPO 均支持）
+  # ── 语音功能（调用手机系统引擎）──────────────────────
+  # 具体语言能力取决于设备安装的语音识别和 TTS 引擎。
   flutter_tts:
     path: third_party/flutter_tts
-  # speech_to_text: 调用 Android SpeechRecognizer（各厂商自带语音引擎）
   speech_to_text:
     path: third_party/speech_to_text
 
@@ -53,5 +50,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    # 36KB 的本地词典，打包进 APK，无需网络即可查询
+    # 本地词典随 APK 打包，无需联网即可查询已收录条目
     - assets/dictionary.db
