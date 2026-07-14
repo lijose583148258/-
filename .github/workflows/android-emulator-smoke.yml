@@ -8,6 +8,10 @@ on:
       - master
   pull_request:
 
+concurrency:
+  group: android-emulator-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   emulator-smoke:
     runs-on: ubuntu-latest
@@ -70,4 +74,3 @@ jobs:
           name: emulator-validation-logs-api-${{ matrix.api-level }}
           path: artifacts
           if-no-files-found: warn
-
