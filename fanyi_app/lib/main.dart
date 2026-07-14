@@ -1,9 +1,8 @@
-import 'package:flutter/material.dart';
-
 import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import 'screens/camera_screen.dart';
 import 'screens/conversation_screen.dart';
@@ -16,7 +15,7 @@ import 'ui/app_theme.dart';
 
 void main() {
   runZonedGuarded(
-    () async {
+    () {
       WidgetsFlutterBinding.ensureInitialized();
 
       FlutterError.onError = (details) {
@@ -31,13 +30,24 @@ void main() {
         return true;
       };
 
-      await AppActionService.init();
+      // Native shortcuts and share intents are optional. Render the first frame
+      // immediately so an unavailable or slow OEM platform channel can never
+      // leave the app stuck on the Android launch screen.
       runApp(const FanyiTongApp());
+      unawaited(_initializeOptionalNativeActions());
     },
     (error, stack) {
       debugPrint('Unhandled zone error: $error\n$stack');
     },
   );
+}
+
+Future<void> _initializeOptionalNativeActions() async {
+  try {
+    await AppActionService.init().timeout(const Duration(seconds: 2));
+  } catch (error, stack) {
+    debugPrint('Optional native actions were skipped: $error\n$stack');
+  }
 }
 
 class FanyiTongApp extends StatelessWidget {
