@@ -56,8 +56,7 @@ jobs:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
-          script: >
-            cd fanyi_app && adb devices > ../artifacts/adb-devices.log && flutter devices > ../artifacts/flutter-devices.log && adb logcat -c && (timeout --kill-after=30s 15m flutter drive --no-pub --use-application-binary=build/app/outputs/flutter-apk/app-debug.apk --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554 > ../artifacts/flutter-drive.log 2>&1; status=$?; if { [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; } && grep -Fq "All tests passed!" ../artifacts/flutter-drive.log; then echo "flutter drive timed out after the integration test passed; treating driver teardown hang as success"; status=0; fi; adb logcat -d -v threadtime > ../artifacts/adb-logcat.log || true; if [ "$status" -eq 0 ] && grep -Fq "Creating TextToSpeech after first Flutter method call" ../artifacts/adb-logcat.log; then echo "Unexpected TTS initialization during cold-start smoke test"; status=1; fi; cat ../artifacts/flutter-drive.log; exit $status)
+          script: cd fanyi_app && bash ../.github/scripts/run_emulator_smoke.sh
 
       - name: Upload emulator screenshots
         if: always()
