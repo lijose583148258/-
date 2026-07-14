@@ -7,14 +7,12 @@ import 'package:fanyi_tong/screens/learn_screen.dart';
 import 'package:fanyi_tong/screens/translation_screen.dart';
 
 void main() {
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('home renders and is reachable', (tester) async {
     app.main();
     await tester.pump();
     await tester.pump(const Duration(seconds: 3));
-    await binding.convertFlutterSurfaceToImage();
-    await tester.pump();
 
     expect(find.byType(app.FanyiTongApp), findsOneWidget);
     expect(find.byType(app.MainLayout), findsOneWidget);
@@ -28,7 +26,5 @@ void main() {
     expect(find.byType(ConversationScreen), findsNothing);
     expect(find.byType(LearnScreen), findsNothing);
     expect(find.byType(CameraScreen), findsNothing);
-
-    await binding.takeScreenshot('home');
   });
 }
