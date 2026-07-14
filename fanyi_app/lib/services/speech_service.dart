@@ -9,6 +9,11 @@ class SpeechService {
   static bool _available = false;
   static bool _initialized = false;
 
+  static const Duration _permissionStatusTimeout = Duration(seconds: 5);
+  static const Duration _permissionRequestTimeout = Duration(minutes: 2);
+  static const Duration _platformTimeout = Duration(seconds: 10);
+  static const Duration _stopTimeout = Duration(seconds: 5);
+
   static Future<bool> initialize({
     bool requestPermission = true,
     bool forceRetry = false,
@@ -18,6 +23,7 @@ class SpeechService {
     if (forceRetry) {
       _initialized = false;
       _available = false;
+      _speech = null;
     }
     return _initializing ??= _initializeSafely(
       requestPermission: requestPermission,
@@ -26,7 +32,9 @@ class SpeechService {
 
   static Future<bool> refreshAvailability() async {
     try {
-      final status = await Permission.microphone.status;
+      final status = await Permission.microphone.status.timeout(
+        _permissionStatusTimeout,
+      );
       if (!status.isGranted) {
         _available = false;
         return false;
@@ -44,8 +52,13 @@ class SpeechService {
   }) async {
     try {
       final status = requestPermission
-          ? await Permission.microphone.request()
-          : await Permission.microphone.status;
+          ? await Permission.microphone.request().timeout(
+              _permissionRequestTimeout,
+              onTimeout: () => PermissionStatus.denied,
+            )
+          : await Permission.microphone.status.timeout(
+              _permissionStatusTimeout,
+            );
       if (!status.isGranted) {
         debugPrint('Microphone permission was denied.');
         _available = false;
@@ -53,10 +66,12 @@ class SpeechService {
       }
 
       final speech = _speech ??= SpeechToText();
-      _available = await speech.initialize(
-        onError: (error) => debugPrint('STT error: ${error.errorMsg}'),
-        onStatus: (status) => debugPrint('STT status: $status'),
-      );
+      _available = await speech
+          .initialize(
+            onError: (error) => debugPrint('STT error: ${error.errorMsg}'),
+            onStatus: (status) => debugPrint('STT status: $status'),
+          )
+          .timeout(_platformTimeout, onTimeout: () => false);
       return _available;
     } catch (error, stack) {
       _available = false;
@@ -79,20 +94,22 @@ class SpeechService {
       if (!_available || speech == null) return false;
 
       if (speech.isListening) {
-        await speech.stop();
+        await speech.stop().timeout(_stopTimeout);
       }
 
-      await speech.listen(
-        onResult: (SpeechRecognitionResult result) {
-          onResult(result.recognizedWords);
-          if (result.finalResult) onDone?.call();
-        },
-        localeId: localeId,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 3),
-        partialResults: true,
-        cancelOnError: true,
-      );
+      await speech
+          .listen(
+            onResult: (SpeechRecognitionResult result) {
+              onResult(result.recognizedWords);
+              if (result.finalResult) onDone?.call();
+            },
+            localeId: localeId,
+            listenFor: const Duration(seconds: 30),
+            pauseFor: const Duration(seconds: 3),
+            partialResults: true,
+            cancelOnError: true,
+          )
+          .timeout(_platformTimeout);
       return true;
     } catch (error, stack) {
       debugPrint('Speech recognition could not start: $error\n$stack');
@@ -103,7 +120,9 @@ class SpeechService {
   static Future<void> stopListening() async {
     try {
       final speech = _speech;
-      if (speech != null && speech.isListening) await speech.stop();
+      if (speech != null && speech.isListening) {
+        await speech.stop().timeout(_stopTimeout);
+      }
     } catch (error) {
       debugPrint('Speech recognition could not stop: $error');
     }
@@ -112,7 +131,9 @@ class SpeechService {
   static Future<void> cancelListening() async {
     try {
       final speech = _speech;
-      if (speech != null && speech.isListening) await speech.cancel();
+      if (speech != null && speech.isListening) {
+        await speech.cancel().timeout(_stopTimeout);
+      }
     } catch (error) {
       debugPrint('Speech recognition could not be cancelled: $error');
     }
@@ -132,7 +153,7 @@ class SpeechService {
     try {
       final speech = _speech;
       if (!_available || speech == null) return const [];
-      final locales = await speech.locales();
+      final locales = await speech.locales().timeout(_platformTimeout);
       return locales.map((locale) => locale.localeId).toList();
     } catch (error) {
       debugPrint('Speech locale discovery failed: $error');
