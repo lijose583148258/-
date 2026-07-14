@@ -1,4 +1,4 @@
-﻿package com.fanyitong.app
+package com.fanyitong.app
 
 import android.content.Intent
 import android.net.Uri
@@ -33,29 +33,15 @@ class MainActivity : FlutterActivity() {
             "fanyitong/ime",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "openInputMethodSettings" -> {
-                    startActivity(
-                        Intent(Settings.ACTION_INPUT_METHOD_SETTINGS).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        },
-                    )
-                    result.success(true)
-                }
+                "openInputMethodSettings" -> result.success(
+                    openSettings(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)),
+                )
 
-                "showInputMethodPicker" -> {
-                    val manager = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-                    manager.showInputMethodPicker()
-                    result.success(true)
-                }
+                "showInputMethodPicker" -> result.success(showInputMethodPickerSafely())
 
-                "openAccessibilitySettings" -> {
-                    startActivity(
-                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        },
-                    )
-                    result.success(true)
-                }
+                "openAccessibilitySettings" -> result.success(
+                    openSettings(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)),
+                )
 
                 "isImeEnabled" -> result.success(isImeEnabled())
                 "isImeSelected" -> result.success(isImeSelected())
@@ -115,6 +101,12 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onDestroy() {
+        appActionsChannel?.setMethodCallHandler(null)
+        appActionsChannel = null
+        super.onDestroy()
+    }
+
     private fun captureLaunchAction(intent: Intent?) {
         val action = parseLaunchAction(intent) ?: return
         pendingLaunchAction = action
@@ -132,15 +124,24 @@ class MainActivity : FlutterActivity() {
             )
         }
 
-        if (Intent.ACTION_SEND == intent.action && intent.type == "text/plain") {
-            val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
-            if (sharedText.isNotBlank()) {
-                return mapOf(
-                    "action" to AppLaunchActions.SHARED_TEXT,
-                    "text" to sharedText,
-                    "requestId" to System.currentTimeMillis(),
-                )
-            }
+        val sharedText = when {
+            Intent.ACTION_SEND == intent.action && intent.type == "text/plain" ->
+                intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
+
+            Intent.ACTION_SEND_MULTIPLE == intent.action && intent.type == "text/plain" ->
+                intent.getCharSequenceArrayListExtra(Intent.EXTRA_TEXT)
+                    ?.joinToString("\n") { it.toString() }
+                    .orEmpty()
+
+            else -> ""
+        }
+
+        if (sharedText.isNotBlank()) {
+            return mapOf(
+                "action" to AppLaunchActions.SHARED_TEXT,
+                "text" to sharedText,
+                "requestId" to System.currentTimeMillis(),
+            )
         }
 
         return null
@@ -148,13 +149,25 @@ class MainActivity : FlutterActivity() {
 
     private fun dispatchPendingLaunchAction() {
         val action = pendingLaunchAction ?: return
-        appActionsChannel?.invokeMethod("launchAction", action)
+        val channel = appActionsChannel ?: return
+        channel.invokeMethod("launchAction", action)
         pendingLaunchAction = null
     }
 
     private fun openSettings(intent: Intent): Boolean {
         return try {
             startActivity(intent.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun showInputMethodPickerSafely(): Boolean {
+        return try {
+            val manager = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+                ?: return false
+            manager.showInputMethodPicker()
             true
         } catch (_: Exception) {
             false
