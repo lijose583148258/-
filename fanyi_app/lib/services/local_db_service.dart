@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -8,47 +8,80 @@ import 'package:sqflite/sqflite.dart';
 class LocalDbService {
   static Database? _dictionaryDb;
   static Database? _appDb;
+  static Future<Database>? _dictionaryOpening;
+  static Future<Database>? _appOpening;
   static String? _dictionaryDbPath;
   static String? _appDbPath;
 
   static const int maxTranslationHistory = 200;
 
-  static Future<Database> get _dictionaryDatabase async {
-    if (_dictionaryDb != null) return _dictionaryDb!;
-    _dictionaryDb = await _initDictionaryDatabase();
-    return _dictionaryDb!;
+  static Future<Database> get _dictionaryDatabase {
+    final existing = _dictionaryDb;
+    if (existing != null) return Future<Database>.value(existing);
+
+    return _dictionaryOpening ??= _initDictionaryDatabase().then((database) {
+      _dictionaryDb = database;
+      return database;
+    }).whenComplete(() {
+      _dictionaryOpening = null;
+    });
   }
 
-  static Future<Database> get _appDatabase async {
-    if (_appDb != null) return _appDb!;
-    _appDb = await _initAppDatabase();
-    return _appDb!;
+  static Future<Database> get _appDatabase {
+    final existing = _appDb;
+    if (existing != null) return Future<Database>.value(existing);
+
+    return _appOpening ??= _initAppDatabase().then((database) {
+      _appDb = database;
+      return database;
+    }).whenComplete(() {
+      _appOpening = null;
+    });
   }
 
   static Future<Database> _initDictionaryDatabase() async {
     final dir = await getApplicationDocumentsDirectory();
+    await dir.create(recursive: true);
     final dbPath = p.join(dir.path, 'dictionary_v2.db');
     _dictionaryDbPath = dbPath;
 
-    if (!await File(dbPath).exists()) {
-      final ByteData data = await rootBundle.load('assets/dictionary.db');
-      await File(dbPath).writeAsBytes(
-        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-        flush: true,
-      );
+    final ByteData data = await rootBundle.load('assets/dictionary.db');
+    final bytes = data.buffer.asUint8List(
+      data.offsetInBytes,
+      data.lengthInBytes,
+    );
+    final databaseFile = File(dbPath);
+    final shouldInstall =
+        !await databaseFile.exists() || await databaseFile.length() != bytes.length;
+
+    if (shouldInstall) {
+      final temporaryFile = File('$dbPath.installing');
+      try {
+        await temporaryFile.writeAsBytes(bytes, flush: true);
+        if (await databaseFile.exists()) {
+          await databaseFile.delete();
+        }
+        await temporaryFile.rename(dbPath);
+      } finally {
+        if (await temporaryFile.exists()) {
+          await temporaryFile.delete();
+        }
+      }
     }
 
-    return openDatabase(dbPath, readOnly: true);
+    return openDatabase(dbPath, readOnly: true, singleInstance: true);
   }
 
   static Future<Database> _initAppDatabase() async {
     final dir = await getApplicationDocumentsDirectory();
+    await dir.create(recursive: true);
     final dbPath = p.join(dir.path, 'fanyi_tong_app.db');
     _appDbPath = dbPath;
 
     return openDatabase(
       dbPath,
       version: 1,
+      singleInstance: true,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE translation_history (
@@ -226,7 +259,10 @@ class LocalDbService {
     int maxEntries = maxTranslationHistory,
   }) async {
     final db = await _appDatabase;
-    final count = await getTranslationHistoryCount();
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM translation_history',
+    );
+    final count = Sqflite.firstIntValue(rows) ?? 0;
     if (count <= maxEntries) return;
 
     final deleteCount = count - maxEntries;
