@@ -35,6 +35,7 @@ class AppLaunchRequest {
 
 class AppActionService {
   static const MethodChannel _channel = MethodChannel('fanyitong/app_actions');
+  static const Duration _nativeTimeout = Duration(seconds: 2);
 
   static final ValueNotifier<AppLaunchRequest?> pendingRequest =
       ValueNotifier<AppLaunchRequest?>(null);
@@ -56,9 +57,9 @@ class AppActionService {
         return null;
       });
 
-      final initial = await _channel.invokeMapMethod<String, dynamic>(
-        'consumePendingAction',
-      );
+      final initial = await _channel
+          .invokeMapMethod<String, dynamic>('consumePendingAction')
+          .timeout(_nativeTimeout, onTimeout: () => null);
       final request = _decodeRequest(initial);
       if (request != null) {
         pendingRequest.value = request;
