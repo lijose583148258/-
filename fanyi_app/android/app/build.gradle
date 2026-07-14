@@ -82,11 +82,11 @@ tasks.matching { it.name == 'compileReleaseJavaWithJavac' }.configureEach {
         if (!registrant.exists()) return
 
         def integrationTestRegistration = java.util.regex.Pattern.compile(
-            '(?s)\\s*try \\{\\s*flutterEngine\\.getPlugins\\(\\)\\.add\\(new '
-                + 'dev\\.flutter\\.plugins\\.integration_test\\.IntegrationTestPlugin\\(\\)\\);'
-                + '\\s*\\} catch \\(Exception e\\) \\{\\s*Log\\.e\\(TAG, '
+            '(?s)\s*try \{\s*flutterEngine\.getPlugins\(\)\.add\(new '
+                + 'dev\.flutter\.plugins\.integration_test\.IntegrationTestPlugin\(\)\);'
+                + '\s*\} catch \(Exception e\) \{\s*Log\.e\(TAG, '
                 + '"Error registering plugin integration_test, '
-                + 'dev\\.flutter\\.plugins\\.integration_test\\.IntegrationTestPlugin", e\\);\\s*\\}',
+                + 'dev\.flutter\.plugins\.integration_test\.IntegrationTestPlugin", e\);\s*\}',
         )
         registrant.setText(
             integrationTestRegistration.matcher(registrant.getText('UTF-8')).replaceFirst(''),
@@ -97,8 +97,6 @@ tasks.matching { it.name == 'compileReleaseJavaWithJavac' }.configureEach {
 
 dependencies {
     implementation "androidx.multidex:multidex:2.0.1"
-    implementation "com.google.mlkit:text-recognition:16.0.1"
-    implementation "com.google.mlkit:text-recognition-chinese:16.0.1"
 
     testImplementation "junit:junit:4.12"
     androidTestImplementation "androidx.test:runner:1.2.0"
