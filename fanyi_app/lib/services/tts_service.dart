@@ -8,6 +8,9 @@ class TtsService {
   static bool _available = false;
   static bool _viSupported = false;
 
+  static const Duration _platformTimeout = Duration(seconds: 8);
+  static const Duration _speakTimeout = Duration(seconds: 15);
+
   static Future<bool> _init() {
     if (_initialized) return Future<bool>.value(_available);
     return _initializing ??= _initSafely();
@@ -16,11 +19,11 @@ class TtsService {
   static Future<bool> _initSafely() async {
     try {
       final tts = _tts ??= FlutterTts();
-      await tts.setVolume(1.0);
-      await tts.setSpeechRate(0.65);
-      await tts.setPitch(1.0);
+      await tts.setVolume(1.0).timeout(_platformTimeout);
+      await tts.setSpeechRate(0.65).timeout(_platformTimeout);
+      await tts.setPitch(1.0).timeout(_platformTimeout);
 
-      final languages = await tts.getLanguages;
+      final languages = await tts.getLanguages.timeout(_platformTimeout);
       if (languages is List) {
         _viSupported = languages.any(
           (language) => language.toString().toLowerCase().startsWith('vi'),
@@ -45,8 +48,11 @@ class TtsService {
       if (!await _init() || !_viSupported) return false;
       final tts = _tts;
       if (tts == null) return false;
-      await tts.setLanguage('vi-VN');
-      return await tts.speak(text) == 1;
+      final languageResult = await tts
+          .setLanguage('vi-VN')
+          .timeout(_platformTimeout);
+      if (languageResult != 1) return false;
+      return await tts.speak(text).timeout(_speakTimeout) == 1;
     } catch (error) {
       debugPrint('Vietnamese TTS failed: $error');
       return false;
@@ -58,8 +64,11 @@ class TtsService {
       if (!await _init()) return false;
       final tts = _tts;
       if (tts == null) return false;
-      await tts.setLanguage('zh-CN');
-      return await tts.speak(text) == 1;
+      final languageResult = await tts
+          .setLanguage('zh-CN')
+          .timeout(_platformTimeout);
+      if (languageResult != 1) return false;
+      return await tts.speak(text).timeout(_speakTimeout) == 1;
     } catch (error) {
       debugPrint('Chinese TTS failed: $error');
       return false;
@@ -72,7 +81,7 @@ class TtsService {
 
   static Future<void> stop() async {
     try {
-      await _tts?.stop();
+      await _tts?.stop().timeout(_platformTimeout);
     } catch (error) {
       debugPrint('TTS could not stop: $error');
     }
