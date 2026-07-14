@@ -2,11 +2,6 @@ name: OEM Real Device Smoke
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "fanyi_app/**"
-      - ".github/workflows/oem-real-device-smoke.yml"
-      - ".github/scripts/run_browserstack_oem.sh"
 
 permissions:
   contents: read
