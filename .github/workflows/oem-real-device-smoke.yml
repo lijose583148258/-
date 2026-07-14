@@ -20,7 +20,6 @@ jobs:
     name: Xiaomi and OPlus real-device gate
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: ${{ secrets.BROWSERSTACK_USERNAME != '' && secrets.BROWSERSTACK_ACCESS_KEY != '' }}
     env:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
       BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
@@ -28,6 +27,11 @@ jobs:
       MIN_ANDROID_MAJOR: "10"
 
     steps:
+      - name: Require real-device cloud credentials
+        run: |
+          test -n "$BROWSERSTACK_USERNAME" || { echo "Missing BROWSERSTACK_USERNAME"; exit 1; }
+          test -n "$BROWSERSTACK_ACCESS_KEY" || { echo "Missing BROWSERSTACK_ACCESS_KEY"; exit 1; }
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -67,14 +71,3 @@ jobs:
           name: browserstack-oem-result
           path: browserstack-oem-result.json
           if-no-files-found: warn
-
-  credentials-required:
-    name: OEM cloud credentials configured
-    runs-on: ubuntu-latest
-    if: ${{ secrets.BROWSERSTACK_USERNAME == '' || secrets.BROWSERSTACK_ACCESS_KEY == '' }}
-    steps:
-      - name: Block release without real-device credentials
-        run: |
-          echo "BROWSERSTACK_USERNAME and BROWSERSTACK_ACCESS_KEY are required."
-          echo "This check intentionally fails because AOSP emulators do not replace OEM real-device validation."
-          exit 1
