@@ -14,6 +14,10 @@ class MlKitService {
   static bool _zhViModelReady = false;
   static bool _viZhModelReady = false;
 
+  static const Duration _availabilityTimeout = Duration(seconds: 4);
+  static const Duration _translationTimeout = Duration(seconds: 12);
+  static const Duration _downloadTimeout = Duration(minutes: 2);
+
   static bool get isAvailable => _isAvailable;
   static bool get isDownloading => _downloading != null;
 
@@ -35,12 +39,12 @@ class MlKitService {
       );
 
       final manager = OnDeviceTranslatorModelManager();
-      _zhViModelReady = await manager.isModelDownloaded(
-        TranslateLanguage.vietnamese.bcpCode,
-      );
-      _viZhModelReady = await manager.isModelDownloaded(
-        TranslateLanguage.chinese.bcpCode,
-      );
+      _zhViModelReady = await manager
+          .isModelDownloaded(TranslateLanguage.vietnamese.bcpCode)
+          .timeout(_availabilityTimeout);
+      _viZhModelReady = await manager
+          .isModelDownloaded(TranslateLanguage.chinese.bcpCode)
+          .timeout(_availabilityTimeout);
       _isAvailable = true;
       debugPrint('ML Kit is available on this device.');
 
@@ -69,13 +73,16 @@ class MlKitService {
       final modelManager = OnDeviceTranslatorModelManager();
 
       try {
-        if (!await modelManager.isModelDownloaded(
-          TranslateLanguage.vietnamese.bcpCode,
-        )) {
-          await modelManager.downloadModel(
-            TranslateLanguage.vietnamese.bcpCode,
-            isWifiRequired: false,
-          );
+        final downloaded = await modelManager
+            .isModelDownloaded(TranslateLanguage.vietnamese.bcpCode)
+            .timeout(_availabilityTimeout);
+        if (!downloaded) {
+          await modelManager
+              .downloadModel(
+                TranslateLanguage.vietnamese.bcpCode,
+                isWifiRequired: false,
+              )
+              .timeout(_downloadTimeout);
         }
         _zhViModelReady = true;
       } catch (error) {
@@ -84,13 +91,16 @@ class MlKitService {
       }
 
       try {
-        if (!await modelManager.isModelDownloaded(
-          TranslateLanguage.chinese.bcpCode,
-        )) {
-          await modelManager.downloadModel(
-            TranslateLanguage.chinese.bcpCode,
-            isWifiRequired: false,
-          );
+        final downloaded = await modelManager
+            .isModelDownloaded(TranslateLanguage.chinese.bcpCode)
+            .timeout(_availabilityTimeout);
+        if (!downloaded) {
+          await modelManager
+              .downloadModel(
+                TranslateLanguage.chinese.bcpCode,
+                isWifiRequired: false,
+              )
+              .timeout(_downloadTimeout);
         }
         _viZhModelReady = true;
       } catch (error) {
@@ -108,7 +118,7 @@ class MlKitService {
     final translator = _zhToViTranslator;
     if (!_isAvailable || !_zhViModelReady || translator == null) return null;
     try {
-      return await translator.translateText(text);
+      return await translator.translateText(text).timeout(_translationTimeout);
     } catch (error) {
       debugPrint('ML Kit zh->vi translation failed: $error');
       return null;
@@ -119,7 +129,7 @@ class MlKitService {
     final translator = _viToZhTranslator;
     if (!_isAvailable || !_viZhModelReady || translator == null) return null;
     try {
-      return await translator.translateText(text);
+      return await translator.translateText(text).timeout(_translationTimeout);
     } catch (error) {
       debugPrint('ML Kit vi->zh translation failed: $error');
       return null;
@@ -138,12 +148,12 @@ class MlKitService {
 
     try {
       final manager = OnDeviceTranslatorModelManager();
-      final viReady = await manager.isModelDownloaded(
-        TranslateLanguage.vietnamese.bcpCode,
-      );
-      final zhReady = await manager.isModelDownloaded(
-        TranslateLanguage.chinese.bcpCode,
-      );
+      final viReady = await manager
+          .isModelDownloaded(TranslateLanguage.vietnamese.bcpCode)
+          .timeout(_availabilityTimeout);
+      final zhReady = await manager
+          .isModelDownloaded(TranslateLanguage.chinese.bcpCode)
+          .timeout(_availabilityTimeout);
       _zhViModelReady = viReady;
       _viZhModelReady = zhReady;
 
@@ -180,12 +190,16 @@ class MlKitService {
     try {
       final modelManager = OnDeviceTranslatorModelManager();
       try {
-        await modelManager.deleteModel(TranslateLanguage.vietnamese.bcpCode);
+        await modelManager
+            .deleteModel(TranslateLanguage.vietnamese.bcpCode)
+            .timeout(_availabilityTimeout);
       } catch (error) {
         debugPrint('Failed to delete Vietnamese model: $error');
       }
       try {
-        await modelManager.deleteModel(TranslateLanguage.chinese.bcpCode);
+        await modelManager
+            .deleteModel(TranslateLanguage.chinese.bcpCode)
+            .timeout(_availabilityTimeout);
       } catch (error) {
         debugPrint('Failed to delete Chinese model: $error');
       }
