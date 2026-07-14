@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: android-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-android:
@@ -73,4 +73,3 @@ jobs:
           name: android-validation-logs
           path: artifacts
           if-no-files-found: warn
-
