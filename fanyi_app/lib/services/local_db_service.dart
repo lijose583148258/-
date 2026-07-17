@@ -13,6 +13,8 @@ class LocalDbService {
 
   static const int maxTranslationHistory = 200;
 
+  static Future<Database> get appDatabase async => _appDatabase;
+
   static Future<Database> get _dictionaryDatabase async {
     if (_dictionaryDb != null) return _dictionaryDb!;
     _dictionaryDb = await _initDictionaryDatabase();
@@ -48,28 +50,91 @@ class LocalDbService {
 
     return openDatabase(
       dbPath,
-      version: 1,
+      version: 3,
       onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE translation_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at INTEGER NOT NULL,
-            original TEXT NOT NULL,
-            translated TEXT NOT NULL,
-            normalized TEXT,
-            source TEXT NOT NULL,
-            direction TEXT,
-            han_zi TEXT,
-            explanation TEXT,
-            is_slang INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX idx_translation_history_created_at '
-          'ON translation_history(created_at DESC)',
-        );
+        await _createAppTables(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createLearningTables(db);
+        }
+        if (oldVersion < 3) {
+          await _addColumnIfMissing(
+            db,
+            table: 'learning_stats',
+            column: 'today_xp',
+            definition: 'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       },
     );
+  }
+
+  static Future<void> _addColumnIfMissing(
+    Database db, {
+    required String table,
+    required String column,
+    required String definition,
+  }) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = columns.any((row) => row['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+    }
+  }
+
+  static Future<void> _createAppTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE translation_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL,
+        original TEXT NOT NULL,
+        translated TEXT NOT NULL,
+        normalized TEXT,
+        source TEXT NOT NULL,
+        direction TEXT,
+        han_zi TEXT,
+        explanation TEXT,
+        is_slang INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_translation_history_created_at '
+      'ON translation_history(created_at DESC)',
+    );
+    await _createLearningTables(db);
+  }
+
+  static Future<void> _createLearningTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS learning_progress (
+        lesson_id TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        correct INTEGER NOT NULL DEFAULT 0,
+        question_count INTEGER NOT NULL DEFAULT 0,
+        best_score INTEGER NOT NULL DEFAULT 0,
+        completed INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS learning_stats (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        total_xp INTEGER NOT NULL DEFAULT 0,
+        today_xp INTEGER NOT NULL DEFAULT 0,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        completed_lessons INTEGER NOT NULL DEFAULT 0,
+        last_study_day TEXT
+      )
+    ''');
+    await db.insert('learning_stats', {
+      'id': 1,
+      'total_xp': 0,
+      'today_xp': 0,
+      'current_streak': 0,
+      'completed_lessons': 0,
+      'last_study_day': null,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   static Future<String> normalizeText(String text) async {
