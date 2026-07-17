@@ -34,5 +34,5 @@ class FreeEntitlementService {
 
   static bool canUse(String featureKey) => true;
 
-  static String get statusText => '全部功能已开放';
+  static const String statusText = '全部功能已开放';
 }
