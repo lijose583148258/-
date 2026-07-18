@@ -1,0 +1,41 @@
+def args = ["-Xlint:deprecation"]
+
+group 'com.eyedeadevelopment.fluttertts'
+version '1.0-SNAPSHOT'
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+project.getTasks().withType(JavaCompile).configureEach {
+    options.compilerArgs.addAll(args)
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    compileSdk 36
+    namespace 'com.eyedeadevelopment.fluttertts'
+
+    defaultConfig {
+        minSdk 21
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    lint {
+        disable += ['InvalidPackage', 'GradleDependency']
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17.toString()
+    }
+}

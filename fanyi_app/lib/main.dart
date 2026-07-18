@@ -1,4 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:ui';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import 'screens/camera_screen.dart';
 import 'screens/conversation_screen.dart';
@@ -7,14 +11,43 @@ import 'screens/learn_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/translation_screen.dart';
 import 'services/app_action_service.dart';
-import 'services/translation_service.dart';
 import 'ui/app_theme.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await AppActionService.init();
-  TranslationService.warmUp();
-  runApp(const FanyiTongApp());
+void main() {
+  runZonedGuarded(
+    () {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        Zone.current.handleUncaughtError(
+          details.exception,
+          details.stack ?? StackTrace.current,
+        );
+      };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        debugPrint('Unhandled platform error: $error\n$stack');
+        return true;
+      };
+
+      // Native shortcuts and share intents are optional. Render the first frame
+      // immediately so an unavailable or slow OEM platform channel can never
+      // leave the app stuck on the Android launch screen.
+      runApp(const FanyiTongApp());
+      unawaited(_initializeOptionalNativeActions());
+    },
+    (error, stack) {
+      debugPrint('Unhandled zone error: $error\n$stack');
+    },
+  );
+}
+
+Future<void> _initializeOptionalNativeActions() async {
+  try {
+    await AppActionService.init().timeout(const Duration(seconds: 2));
+  } catch (error, stack) {
+    debugPrint('Optional native actions were skipped: $error\n$stack');
+  }
 }
 
 class FanyiTongApp extends StatelessWidget {
@@ -40,6 +73,7 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
+  final Set<int> _loadedIndexes = {0};
   String? _translationSeedText;
   String? _translationLaunchAction;
   int _translationRequestId = 0;
@@ -75,12 +109,12 @@ class _MainLayoutState extends State<MainLayout> {
     switch (request.action) {
       case AppLaunchAction.openTranslate:
         setState(() {
-          _selectedIndex = 0;
+          _selectIndexWithoutRebuild(0);
         });
         break;
       case AppLaunchAction.pasteTranslate:
         setState(() {
-          _selectedIndex = 0;
+          _selectIndexWithoutRebuild(0);
           _translationSeedText = null;
           _translationLaunchAction = AppLaunchAction.pasteTranslate;
           _translationRequestId = request.requestId;
@@ -88,7 +122,7 @@ class _MainLayoutState extends State<MainLayout> {
         break;
       case AppLaunchAction.sharedText:
         setState(() {
-          _selectedIndex = 0;
+          _selectIndexWithoutRebuild(0);
           _translationSeedText = request.text;
           _translationLaunchAction = AppLaunchAction.sharedText;
           _translationRequestId = request.requestId;
@@ -97,12 +131,12 @@ class _MainLayoutState extends State<MainLayout> {
       case AppLaunchAction.voiceTranslate:
       case AppLaunchAction.openConversation:
         setState(() {
-          _selectedIndex = 1;
+          _selectIndexWithoutRebuild(1);
         });
         break;
       case AppLaunchAction.openLearn:
         setState(() {
-          _selectedIndex = 2;
+          _selectIndexWithoutRebuild(2);
         });
         break;
       case AppLaunchAction.openKeyboard:
@@ -118,6 +152,35 @@ class _MainLayoutState extends State<MainLayout> {
     AppActionService.clearPending();
   }
 
+  void _selectIndex(int index) {
+    if (_selectedIndex == index && _loadedIndexes.contains(index)) return;
+    setState(() => _selectIndexWithoutRebuild(index));
+  }
+
+  void _selectIndexWithoutRebuild(int index) {
+    _selectedIndex = index;
+    _loadedIndexes.add(index);
+  }
+
+  Widget _buildPage(int index) {
+    switch (index) {
+      case 0:
+        return TranslationScreen(
+          initialText: _translationSeedText,
+          launchAction: _translationLaunchAction,
+          requestId: _translationRequestId,
+        );
+      case 1:
+        return const ConversationScreen();
+      case 2:
+        return const LearnScreen();
+      case 3:
+        return const CameraScreen();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,16 +190,15 @@ class _MainLayoutState extends State<MainLayout> {
           Positioned.fill(
             child: IndexedStack(
               index: _selectedIndex,
-              children: [
-                TranslationScreen(
-                  initialText: _translationSeedText,
-                  launchAction: _translationLaunchAction,
-                  requestId: _translationRequestId,
-                ),
-                const ConversationScreen(),
-                const LearnScreen(),
-                const CameraScreen(),
-              ],
+              children: List.generate(_items.length, (index) {
+                if (!_loadedIndexes.contains(index)) {
+                  return const SizedBox.shrink();
+                }
+                return KeyedSubtree(
+                  key: PageStorageKey('main-tab-$index'),
+                  child: _buildPage(index),
+                );
+              }),
             ),
           ),
         ],
@@ -172,7 +234,7 @@ class _MainLayoutState extends State<MainLayout> {
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(14),
-                      onTap: () => setState(() => _selectedIndex = index),
+                      onTap: () => _selectIndex(index),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
                         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -238,8 +300,5 @@ class _NavItem {
   final IconData icon;
   final String label;
 
-  const _NavItem({
-    required this.icon,
-    required this.label,
-  });
+  const _NavItem({required this.icon, required this.label});
 }

@@ -1,6 +1,7 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'local_db_service.dart';
@@ -9,10 +10,6 @@ import 'mlkit_service.dart';
 class TranslationService {
   static const String zhToVi = 'zh->vi';
   static const String viToZh = 'vi->zh';
-
-  static void warmUp() {
-    unawaited(MlKitService.initialize());
-  }
 
   static String detectLanguage(String text) {
     if (RegExp(r'[\u4e00-\u9fff]').hasMatch(text)) return 'zh';
@@ -33,32 +30,28 @@ class TranslationService {
     final resolvedDirection = direction ?? (lang == 'zh' ? zhToVi : viToZh);
 
     if (resolvedDirection == viToZh) {
-      final offline = await LocalDbService.translate(trimmed);
-      if (offline.found) {
-        final result = TranslationResult(
-          original: trimmed,
-          translated: offline.translated,
-          normalized: offline.normalized,
-          hanZi: offline.hanZi,
-          explanation: offline.explanation,
-          isSlang: offline.isSlang,
-          direction: resolvedDirection,
-          source: TranslationSource.localDb,
-        );
-        unawaited(LocalDbService.recordTranslation(
-          original: trimmed,
-          translated: result.translated,
-          source: result.source.name,
-          direction: resolvedDirection,
-          normalized: result.normalized,
-          hanZi: result.hanZi,
-          explanation: result.explanation,
-          isSlang: result.isSlang,
-        ));
-        return result;
+      try {
+        final offline = await LocalDbService.translate(trimmed);
+        if (offline.found) {
+          final result = TranslationResult(
+            original: trimmed,
+            translated: offline.translated,
+            normalized: offline.normalized,
+            hanZi: offline.hanZi,
+            explanation: offline.explanation,
+            isSlang: offline.isSlang,
+            direction: resolvedDirection,
+            source: TranslationSource.localDb,
+          );
+          _recordTranslation(result);
+          return result;
+        }
+      } catch (error, stack) {
+        debugPrint('Local database is unavailable: $error\n$stack');
       }
     }
 
+    await MlKitService.initialize();
     if (MlKitService.isAvailable) {
       final mlResult = resolvedDirection == zhToVi
           ? await MlKitService.zhToVi(trimmed)
@@ -70,12 +63,7 @@ class TranslationService {
           direction: resolvedDirection,
           source: TranslationSource.mlKit,
         );
-        unawaited(LocalDbService.recordTranslation(
-          original: trimmed,
-          translated: result.translated,
-          source: result.source.name,
-          direction: resolvedDirection,
-        ));
+        _recordTranslation(result);
         return result;
       }
     }
@@ -88,12 +76,7 @@ class TranslationService {
         direction: resolvedDirection,
         source: TranslationSource.myMemory,
       );
-      unawaited(LocalDbService.recordTranslation(
-        original: trimmed,
-        translated: result.translated,
-        source: result.source.name,
-        direction: resolvedDirection,
-      ));
+      _recordTranslation(result);
       return result;
     } catch (_) {
       return TranslationResult(
@@ -103,6 +86,23 @@ class TranslationService {
         source: TranslationSource.noResult,
       );
     }
+  }
+
+  static void _recordTranslation(TranslationResult result) {
+    unawaited(
+      LocalDbService.recordTranslation(
+        original: result.original ?? '',
+        translated: result.translated,
+        source: result.source.name,
+        direction: result.direction,
+        normalized: result.normalized,
+        hanZi: result.hanZi,
+        explanation: result.explanation,
+        isSlang: result.isSlang,
+      ).catchError((Object error, StackTrace stack) {
+        debugPrint('Translation history could not be saved: $error\n$stack');
+      }),
+    );
   }
 
   static Future<String> _callMyMemory(String text, String direction) async {
@@ -118,7 +118,8 @@ class TranslationService {
         .timeout(const Duration(seconds: 6));
 
     if (response.statusCode == 200) {
-      final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final data =
+          json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final translated = data['responseData']?['translatedText'] as String?;
       if (translated != null && translated.isNotEmpty) {
         return translated;
@@ -129,13 +130,7 @@ class TranslationService {
   }
 }
 
-enum TranslationSource {
-  localDb,
-  mlKit,
-  myMemory,
-  noResult,
-  empty,
-}
+enum TranslationSource { localDb, mlKit, myMemory, noResult, empty }
 
 class TranslationResult {
   final String? original;

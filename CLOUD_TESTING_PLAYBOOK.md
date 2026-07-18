@@ -8,6 +8,8 @@ This project already has:
 
 - GitHub Actions for Android release build
 - GitHub Actions for Android emulator smoke testing
+- a manual GitHub Actions workflow for Firebase Test Lab OEM devices
+- a local `scripts/run-firebase-test-lab.ps1` runner
 
 Cloud testing should be used for:
 
@@ -98,17 +100,16 @@ Official references:
 
 ## When to use Firebase Test Lab here
 
-Use it after BrowserStack confirms:
+Use Firebase Test Lab as the first automated cloud path after GitHub AOSP
+emulator smoke is green. It is now wired for this repository through:
 
-- the APK can install
-- the app can launch
-- the main screens are reachable
+- `scripts/run-firebase-test-lab.ps1`
+- `.github/workflows/android-firebase-test-lab.yml`
+- `fanyi_app/docs/CLOUD_REAL_DEVICE_TESTING.md`
 
-At that point, Firebase Test Lab becomes useful for:
-
-- repeating smoke tests
-- comparing devices and Android versions
-- attaching cloud results to release readiness
+The runner builds the Flutter integration test APKs, queries Firebase Test Lab
+device models at run time, and selects physical devices by OEM keyword such as
+Xiaomi, OPPO, OnePlus, realme, Honor, and Huawei.
 
 ## What to test first in Firebase
 
@@ -132,9 +133,10 @@ Those should stay in:
 For this repository, use this order:
 
 1. GitHub `Android Release Build` to produce APK
-2. BrowserStack App Live to validate install and launch on real devices
-3. Firebase Test Lab for repeatable cloud smoke testing
-4. local real-device testing for chat-assist, IME, and accessibility flows
+2. GitHub `Android Emulator Smoke Test` for API 24/29/34 cold-start coverage
+3. Firebase Test Lab OEM workflow for repeatable real-device smoke testing
+4. BrowserStack, Sauce Labs, or Pcloudy for manual exploratory OEM checks
+5. local real-device testing for chat-assist, IME, and accessibility flows
 
 ## What not to rely on
 
@@ -146,6 +148,7 @@ For this repository, use this order:
 
 For this project, the highest-value next cloud step is:
 
-1. download the latest `app-release.apk` from GitHub Actions
-2. upload it to BrowserStack App Live
-3. verify install and first launch on at least two Android devices
+1. add `GCP_SERVICE_ACCOUNT_JSON` as a GitHub repository secret
+2. run `Android Firebase Test Lab OEM Devices` manually
+3. use `xiaomi,oppo,oneplus,realme,honor,huawei` as the device filter input
+4. inspect the Firebase Test Lab matrix and uploaded request artifact

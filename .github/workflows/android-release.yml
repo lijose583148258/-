@@ -2,14 +2,21 @@ name: Android Release Build
 
 on:
   workflow_dispatch:
+    inputs:
+      production_release:
+        description: Require the configured production signing key
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - main
       - master
+  pull_request:
 
 concurrency:
   group: android-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-android:
@@ -23,34 +30,120 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: "3.44.4"
+          cache: true
 
-      - name: Bootstrap platform files
-        run: flutter create --org com.fanyitong --project-name fanyi_tong --platforms=android .
+      - name: Create validation log directory
+        run: mkdir -p ../artifacts
+
+      - name: Configure repeatable Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          values=(
+            "$ANDROID_KEYSTORE_BASE64"
+            "$ANDROID_KEYSTORE_PASSWORD"
+            "$ANDROID_KEY_ALIAS"
+            "$ANDROID_KEY_PASSWORD"
+          )
+          present=0
+          for value in "${values[@]}"; do
+            if [ -n "$value" ]; then
+              present=$((present + 1))
+            fi
+          done
+
+          if [ "$present" -ne 0 ] && [ "$present" -ne 4 ]; then
+            echo "Android signing secrets are only partially configured."
+            exit 1
+          fi
+
+          if [ "$present" -eq 4 ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/release-keystore.jks
+            chmod 600 android/release-keystore.jks
+            cat > android/key.properties <<EOF
+          storeFile=../release-keystore.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+            chmod 600 android/key.properties
+            echo "RELEASE_SIGNING_MODE=production" >> "$GITHUB_ENV"
+            echo "production" > ../artifacts/signing-mode.txt
+          else
+            rm -f android/release-keystore.jks android/key.properties
+            echo "RELEASE_SIGNING_MODE=debug-fallback" >> "$GITHUB_ENV"
+            echo "debug-fallback" > ../artifacts/signing-mode.txt
+            echo "::warning::No production signing secrets are configured. This APK is for installation testing only and may not update a differently signed build."
+          fi
+
+      - name: Enforce production signing for releases
+        run: |
+          set -euo pipefail
+          require_signing=false
+          if [ "${{ github.event_name }}" = "push" ]; then
+            require_signing=true
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.production_release }}" = "true" ]; then
+            require_signing=true
+          fi
+          if [ "$require_signing" = "true" ] && [ "$RELEASE_SIGNING_MODE" != "production" ]; then
+            echo "Production signing is required for this release run."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Static analyze
-        run: flutter analyze
+        run: |
+          set -o pipefail
+          flutter analyze 2>&1 | tee ../artifacts/flutter-analyze.log
 
       - name: Unit tests
-        run: flutter test
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee ../artifacts/flutter-test.log
 
       - name: Build APK
-        run: flutter build apk --release
+        run: |
+          set -o pipefail
+          flutter build apk --release 2>&1 | tee ../artifacts/flutter-build-apk.log
 
       - name: Build AAB
-        run: flutter build appbundle --release
+        run: |
+          set -o pipefail
+          flutter build appbundle --release 2>&1 | tee ../artifacts/flutter-build-aab.log
+
+      - name: Verify Android artifacts
+        run: |
+          set -euo pipefail
+          build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          apk="build/app/outputs/flutter-apk/app-release.apk"
+          aab="build/app/outputs/bundle/release/app-release.aab"
+
+          "$build_tools_dir/zipalign" -c -v 4 "$apk" 2>&1 | tee ../artifacts/zipalign.log
+          "$build_tools_dir/apksigner" verify --verbose --print-certs "$apk" 2>&1 | tee ../artifacts/apksigner.log
+          sha256sum "$apk" "$aab" | tee ../artifacts/android-artifacts.sha256
+
+          if [ "$RELEASE_SIGNING_MODE" = "production" ] && grep -qi "Android Debug" ../artifacts/apksigner.log; then
+            echo "A production build was unexpectedly signed with the Android debug certificate."
+            exit 1
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -64,3 +157,14 @@ jobs:
           name: app-release-aab
           path: fanyi_app/build/app/outputs/bundle/release/app-release.aab
 
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-validation-logs
+          path: artifacts
+          if-no-files-found: warn
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/release-keystore.jks android/key.properties

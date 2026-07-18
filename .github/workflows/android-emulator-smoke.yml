@@ -8,47 +8,68 @@ on:
       - master
   pull_request:
 
+concurrency:
+  group: android-emulator-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   emulator-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [24, 29, 34]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: "3.44.4"
+          cache: true
 
-      - name: Bootstrap platform files
-        working-directory: fanyi_app
-        run: flutter create --org com.fanyitong --project-name fanyi_tong --platforms=android .
+      - name: Create validation log directory
+        run: mkdir -p artifacts
 
       - name: Install dependencies
         working-directory: fanyi_app
         run: flutter pub get
 
+      - name: Build integration-test APK before booting the emulator
+        working-directory: fanyi_app
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+        run: flutter build apk --debug --target integration_test/app_launch_test.dart
+
       - name: Run integration smoke test on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
-          script: cd fanyi_app && adb devices && flutter devices && flutter drive --driver integration_test/driver.dart --target integration_test/app_launch_test.dart -d emulator-5554
+          script: cd fanyi_app && bash ../.github/scripts/run_emulator_smoke.sh
 
       - name: Upload emulator screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-screenshots
+          name: emulator-screenshots-api-${{ matrix.api-level }}
           path: fanyi_app/build/integration_test/screenshots
           if-no-files-found: warn
 
+      - name: Upload emulator logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-validation-logs-api-${{ matrix.api-level }}
+          path: artifacts
+          if-no-files-found: warn

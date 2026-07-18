@@ -1,63 +1,103 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 class TtsService {
-  static final FlutterTts _tts = FlutterTts();
+  static FlutterTts? _tts;
+  static Future<bool>? _initializing;
   static bool _initialized = false;
+  static bool _available = false;
   static bool _viSupported = false;
 
-  static Future<void> _init() async {
-    if (_initialized) return;
+  static const Duration _platformTimeout = Duration(seconds: 8);
+  static const Duration _speakTimeout = Duration(seconds: 15);
 
-    await _tts.setVolume(1.0);
-    await _tts.setSpeechRate(0.65);
-    await _tts.setPitch(1.0);
+  static Future<bool> _init() {
+    if (_initialized) return Future<bool>.value(_available);
+    return _initializing ??= _initSafely();
+  }
 
+  static Future<bool> _initSafely() async {
     try {
-      final languages = await _tts.getLanguages;
+      final tts = _tts ??= FlutterTts();
+      await tts.setVolume(1.0).timeout(_platformTimeout);
+      await tts.setSpeechRate(0.65).timeout(_platformTimeout);
+      await tts.setPitch(1.0).timeout(_platformTimeout);
+
+      final languages = await tts.getLanguages.timeout(_platformTimeout);
       if (languages is List) {
         _viSupported = languages.any(
           (language) => language.toString().toLowerCase().startsWith('vi'),
         );
       }
-    } catch (_) {
+      _available = true;
+      debugPrint('TTS initialized. Vietnamese supported: $_viSupported');
+      return true;
+    } catch (error, stack) {
+      _available = false;
       _viSupported = false;
+      debugPrint('TTS is unavailable: $error\n$stack');
+      return false;
+    } finally {
+      _initialized = true;
+      _initializing = null;
     }
-
-    _initialized = true;
-    debugPrint('TTS initialized. Vietnamese supported: $_viSupported');
   }
 
   static Future<bool> speakVietnamese(String text) async {
-    await _init();
-    if (!_viSupported) return false;
-
-    await _tts.setLanguage('vi-VN');
-    final result = await _tts.speak(text);
-    return result == 1;
-  }
-
-  static Future<void> speakChinese(String text) async {
-    await _init();
-    await _tts.setLanguage('zh-CN');
-    await _tts.speak(text);
-  }
-
-  static Future<bool> speak(String text, {required bool isVietnamese}) async {
-    if (isVietnamese) {
-      return speakVietnamese(text);
+    try {
+      if (!await _init() || !_viSupported) return false;
+      final tts = _tts;
+      if (tts == null) return false;
+      final languageResult = await tts
+          .setLanguage('vi-VN')
+          .timeout(_platformTimeout);
+      if (languageResult != 1) return false;
+      return await tts.speak(text).timeout(_speakTimeout) == 1;
+    } catch (error) {
+      debugPrint('Vietnamese TTS failed: $error');
+      return false;
     }
+  }
 
-    await speakChinese(text);
-    return true;
+  static Future<bool> speakChinese(String text) async {
+    try {
+      if (!await _init()) return false;
+      final tts = _tts;
+      if (tts == null) return false;
+      final languageResult = await tts
+          .setLanguage('zh-CN')
+          .timeout(_platformTimeout);
+      if (languageResult != 1) return false;
+      return await tts.speak(text).timeout(_speakTimeout) == 1;
+    } catch (error) {
+      debugPrint('Chinese TTS failed: $error');
+      return false;
+    }
+  }
+
+  static Future<bool> speak(String text, {required bool isVietnamese}) {
+    return isVietnamese ? speakVietnamese(text) : speakChinese(text);
   }
 
   static Future<void> stop() async {
-    await _tts.stop();
+    try {
+      await _tts?.stop().timeout(_platformTimeout);
+    } catch (error) {
+      debugPrint('TTS could not stop: $error');
+    }
+  }
+
+  static Future<void> reset() async {
+    await stop();
+    _tts = null;
+    _initialized = false;
+    _initializing = null;
+    _available = false;
+    _viSupported = false;
   }
 
   static Future<bool> get isViSupported async {
-    await _init();
+    if (!await _init()) return false;
     return _viSupported;
   }
 }

@@ -1,23 +1,33 @@
-﻿import 'package:flutter/foundation.dart';
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_translation/google_mlkit_translation.dart';
 
 class MlKitService {
   static OnDeviceTranslator? _zhToViTranslator;
   static OnDeviceTranslator? _viToZhTranslator;
+  static Future<void>? _initializing;
+  static Future<void>? _downloading;
 
   static bool _isAvailable = false;
   static bool _initialized = false;
   static bool _zhViModelReady = false;
   static bool _viZhModelReady = false;
 
+  static const Duration _availabilityTimeout = Duration(seconds: 4);
+  static const Duration _translationTimeout = Duration(seconds: 12);
+  static const Duration _downloadTimeout = Duration(minutes: 2);
+
   static bool get isAvailable => _isAvailable;
-  static bool get isDownloading =>
-      _isAvailable && (!_zhViModelReady || !_viZhModelReady);
+  static bool get isDownloading => _downloading != null;
 
-  static Future<void> initialize() async {
-    if (_initialized) return;
-    _initialized = true;
+  /// Initializes ML Kit only after a user requests translation or model setup.
+  static Future<void> initialize() {
+    if (_initialized) return Future<void>.value();
+    return _initializing ??= _initializeSafely();
+  }
 
+  static Future<void> _initializeSafely() async {
     try {
       _zhToViTranslator = OnDeviceTranslator(
         sourceLanguage: TranslateLanguage.chinese,
@@ -28,58 +38,87 @@ class MlKitService {
         targetLanguage: TranslateLanguage.chinese,
       );
 
-      await _zhToViTranslator!.translateText('你好');
+      final manager = OnDeviceTranslatorModelManager();
+      _zhViModelReady = await manager
+          .isModelDownloaded(TranslateLanguage.vietnamese.bcpCode)
+          .timeout(_availabilityTimeout);
+      _viZhModelReady = await manager
+          .isModelDownloaded(TranslateLanguage.chinese.bcpCode)
+          .timeout(_availabilityTimeout);
       _isAvailable = true;
       debugPrint('ML Kit is available on this device.');
-      _downloadModels();
-    } catch (error) {
+
+      if (!_zhViModelReady || !_viZhModelReady) {
+        unawaited(_downloadModels());
+      }
+    } catch (error, stack) {
       _isAvailable = false;
-      debugPrint('ML Kit is unavailable. Falling back to other translators: $error');
-      _zhToViTranslator?.close();
-      _viToZhTranslator?.close();
-      _zhToViTranslator = null;
-      _viToZhTranslator = null;
+      await _closeTranslators();
+      debugPrint(
+        'ML Kit is unavailable. Falling back to other translators: '
+        '$error\n$stack',
+      );
+    } finally {
+      _initialized = true;
+      _initializing = null;
     }
   }
 
-  static Future<void> _downloadModels() async {
-    final modelManager = OnDeviceTranslatorModelManager();
+  static Future<void> _downloadModels() {
+    return _downloading ??= _downloadModelsSafely();
+  }
 
+  static Future<void> _downloadModelsSafely() async {
     try {
-      final zhViDownloaded = await modelManager.isModelDownloaded(
-        TranslateLanguage.vietnamese.bcpCode,
-      );
-      if (!zhViDownloaded) {
-        await modelManager.downloadModel(
-          TranslateLanguage.vietnamese.bcpCode,
-          isWifiRequired: false,
-        );
-      }
-      _zhViModelReady = true;
-    } catch (error) {
-      debugPrint('Vietnamese model download failed: $error');
-    }
+      final modelManager = OnDeviceTranslatorModelManager();
 
-    try {
-      final viZhDownloaded = await modelManager.isModelDownloaded(
-        TranslateLanguage.chinese.bcpCode,
-      );
-      if (!viZhDownloaded) {
-        await modelManager.downloadModel(
-          TranslateLanguage.chinese.bcpCode,
-          isWifiRequired: false,
-        );
+      try {
+        final downloaded = await modelManager
+            .isModelDownloaded(TranslateLanguage.vietnamese.bcpCode)
+            .timeout(_availabilityTimeout);
+        if (!downloaded) {
+          await modelManager
+              .downloadModel(
+                TranslateLanguage.vietnamese.bcpCode,
+                isWifiRequired: false,
+              )
+              .timeout(_downloadTimeout);
+        }
+        _zhViModelReady = true;
+      } catch (error) {
+        _zhViModelReady = false;
+        debugPrint('Vietnamese model download failed: $error');
       }
-      _viZhModelReady = true;
-    } catch (error) {
-      debugPrint('Chinese model download failed: $error');
+
+      try {
+        final downloaded = await modelManager
+            .isModelDownloaded(TranslateLanguage.chinese.bcpCode)
+            .timeout(_availabilityTimeout);
+        if (!downloaded) {
+          await modelManager
+              .downloadModel(
+                TranslateLanguage.chinese.bcpCode,
+                isWifiRequired: false,
+              )
+              .timeout(_downloadTimeout);
+        }
+        _viZhModelReady = true;
+      } catch (error) {
+        _viZhModelReady = false;
+        debugPrint('Chinese model download failed: $error');
+      }
+    } catch (error, stack) {
+      debugPrint('ML Kit model manager is unavailable: $error\n$stack');
+    } finally {
+      _downloading = null;
     }
   }
 
   static Future<String?> zhToVi(String text) async {
-    if (!_isAvailable || _zhToViTranslator == null) return null;
+    final translator = _zhToViTranslator;
+    if (!_isAvailable || !_zhViModelReady || translator == null) return null;
     try {
-      return await _zhToViTranslator!.translateText(text);
+      return await translator.translateText(text).timeout(_translationTimeout);
     } catch (error) {
       debugPrint('ML Kit zh->vi translation failed: $error');
       return null;
@@ -87,9 +126,10 @@ class MlKitService {
   }
 
   static Future<String?> viToZh(String text) async {
-    if (!_isAvailable || _viToZhTranslator == null) return null;
+    final translator = _viToZhTranslator;
+    if (!_isAvailable || !_viZhModelReady || translator == null) return null;
     try {
-      return await _viToZhTranslator!.translateText(text);
+      return await translator.translateText(text).timeout(_translationTimeout);
     } catch (error) {
       debugPrint('ML Kit vi->zh translation failed: $error');
       return null;
@@ -97,74 +137,92 @@ class MlKitService {
   }
 
   static Future<MlKitStatus> getStatus() async {
-    if (!_isAvailable) {
+    if (!_initialized || !_isAvailable) {
       return MlKitStatus(
         available: false,
-        message: 'ML Kit is unavailable on this device.',
+        message: _initialized
+            ? 'ML Kit is unavailable on this device.'
+            : 'ML Kit has not been initialized.',
       );
     }
 
-    final manager = OnDeviceTranslatorModelManager();
-    final viReady = await manager.isModelDownloaded(
-      TranslateLanguage.vietnamese.bcpCode,
-    );
-    final zhReady = await manager.isModelDownloaded(
-      TranslateLanguage.chinese.bcpCode,
-    );
+    try {
+      final manager = OnDeviceTranslatorModelManager();
+      final viReady = await manager
+          .isModelDownloaded(TranslateLanguage.vietnamese.bcpCode)
+          .timeout(_availabilityTimeout);
+      final zhReady = await manager
+          .isModelDownloaded(TranslateLanguage.chinese.bcpCode)
+          .timeout(_availabilityTimeout);
+      _zhViModelReady = viReady;
+      _viZhModelReady = zhReady;
 
-    if (viReady && zhReady) {
       return MlKitStatus(
         available: true,
-        modelsDownloaded: true,
-        message: 'ML Kit offline models are ready.',
+        modelsDownloaded: viReady && zhReady,
+        message: viReady && zhReady
+            ? 'ML Kit offline models are ready.'
+            : 'ML Kit models are not ready yet.',
+      );
+    } catch (error) {
+      debugPrint('ML Kit status check failed: $error');
+      return MlKitStatus(
+        available: false,
+        message: 'ML Kit status is unavailable.',
       );
     }
-
-    return MlKitStatus(
-      available: true,
-      modelsDownloaded: false,
-      message: 'ML Kit models are downloading in the background.',
-    );
   }
 
   static Future<void> forceDownloadModels() async {
-    if (!_initialized) {
-      await initialize();
-    }
+    await initialize();
     if (!_isAvailable) return;
     await _downloadModels();
   }
 
   static Future<void> clearDownloadedModels() async {
-    try {
-      _zhToViTranslator?.close();
-      _viToZhTranslator?.close();
-    } catch (_) {}
+    await _closeTranslators();
 
-    _zhToViTranslator = null;
-    _viToZhTranslator = null;
     _isAvailable = false;
     _initialized = false;
     _zhViModelReady = false;
     _viZhModelReady = false;
 
-    final modelManager = OnDeviceTranslatorModelManager();
     try {
-      await modelManager.deleteModel(TranslateLanguage.vietnamese.bcpCode);
+      final modelManager = OnDeviceTranslatorModelManager();
+      try {
+        await modelManager
+            .deleteModel(TranslateLanguage.vietnamese.bcpCode)
+            .timeout(_availabilityTimeout);
+      } catch (error) {
+        debugPrint('Failed to delete Vietnamese model: $error');
+      }
+      try {
+        await modelManager
+            .deleteModel(TranslateLanguage.chinese.bcpCode)
+            .timeout(_availabilityTimeout);
+      } catch (error) {
+        debugPrint('Failed to delete Chinese model: $error');
+      }
     } catch (error) {
-      debugPrint('Failed to delete Vietnamese model: $error');
-    }
-    try {
-      await modelManager.deleteModel(TranslateLanguage.chinese.bcpCode);
-    } catch (error) {
-      debugPrint('Failed to delete Chinese model: $error');
+      debugPrint('ML Kit model cache could not be cleared: $error');
     }
   }
 
-  static void dispose() {
-    _zhToViTranslator?.close();
-    _viToZhTranslator?.close();
+  static Future<void> _closeTranslators() async {
+    final zhToVi = _zhToViTranslator;
+    final viToZh = _viToZhTranslator;
+    _zhToViTranslator = null;
+    _viToZhTranslator = null;
+
+    try {
+      await zhToVi?.close();
+    } catch (_) {}
+    try {
+      await viToZh?.close();
+    } catch (_) {}
   }
+
+  static Future<void> dispose() => _closeTranslators();
 }
 
 class MlKitStatus {

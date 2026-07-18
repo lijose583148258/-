@@ -1,5 +1,7 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:fanyi_tong/main.dart';
+import 'package:fanyi_tong/screens/camera_screen.dart';
+import 'package:fanyi_tong/screens/conversation_screen.dart';
 
 void main() {
   testWidgets('app widget smoke test', (tester) async {
@@ -13,5 +15,7 @@ void main() {
     expect(find.text('对话'), findsWidgets);
     expect(find.text('学习'), findsWidgets);
     expect(find.text('拍照'), findsWidgets);
+    expect(find.byType(ConversationScreen), findsNothing);
+    expect(find.byType(CameraScreen), findsNothing);
   });
 }

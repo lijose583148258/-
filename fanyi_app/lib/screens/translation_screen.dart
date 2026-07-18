@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/app_action_service.dart';
+import '../services/device_compatibility_service.dart';
 import '../services/translation_service.dart';
 import '../services/tts_service.dart';
 import '../ui/app_theme.dart';
@@ -60,7 +61,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
   void dispose() {
     _debounceTimer?.cancel();
     _inputController.dispose();
-    TtsService.stop();
+    TtsService.stop().ignore();
     super.dispose();
   }
 
@@ -122,9 +123,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
       } catch (_) {
         if (!mounted || currentEpoch != _translationEpoch) return;
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('翻译暂时失败，请稍后再试。')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('翻译暂时失败，请稍后再试。')));
       }
     });
   }
@@ -144,7 +145,17 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
     if (!success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('当前设备缺少可用语音包，无法朗读。')),
+        SnackBar(
+          content: const Text('当前设备缺少可用语音包，无法朗读。'),
+          action: SnackBarAction(
+            label: '语音包设置',
+            onPressed: () {
+              TtsService.reset().then(
+                (_) => DeviceCompatibilityService.openTextToSpeechSettings(),
+              );
+            },
+          ),
+        ),
       );
     }
   }
@@ -152,9 +163,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
   void _copyResult() {
     if (_result == null || !_result!.hasResult) return;
     Clipboard.setData(ClipboardData(text: _result!.translated));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已复制译文到剪贴板。')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已复制译文到剪贴板。')));
   }
 
   Future<void> _pasteToInput() async {
@@ -181,8 +192,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
   void _toggleDirectionOverride() {
     final detected = TranslationService.detectLanguage(_inputController.text);
-    final autoDirection =
-        detected == 'zh' ? TranslationService.zhToVi : TranslationService.viToZh;
+    final autoDirection = detected == 'zh'
+        ? TranslationService.zhToVi
+        : TranslationService.viToZh;
     final current = _directionOverride ?? autoDirection;
     final next = current == TranslationService.zhToVi
         ? TranslationService.viToZh
@@ -201,8 +213,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
   @override
   Widget build(BuildContext context) {
     final detected = TranslationService.detectLanguage(_inputController.text);
-    final autoDirection =
-        detected == 'zh' ? TranslationService.zhToVi : TranslationService.viToZh;
+    final autoDirection = detected == 'zh'
+        ? TranslationService.zhToVi
+        : TranslationService.viToZh;
     final resolvedDirection = _directionOverride ?? autoDirection;
     final directionLabel = resolvedDirection == TranslationService.zhToVi
         ? '中文 → 越南语'
@@ -223,8 +236,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
             tooltip: '聊天键盘',
           ),
           IconButton(
-            onPressed:
-                (_result?.hasResult == true && !_isSpeaking) ? _speakResult : null,
+            onPressed: (_result?.hasResult == true && !_isSpeaking)
+                ? _speakResult
+                : null,
             icon: Icon(
               _isSpeaking ? Icons.graphic_eq_rounded : Icons.volume_up_rounded,
             ),
@@ -242,8 +256,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                 onTap: _toggleDirectionOverride,
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.78),
                     borderRadius: BorderRadius.circular(14),
@@ -355,7 +371,8 @@ class _TranslationScreenState extends State<TranslationScreen> {
                             ),
                           ),
                           const Spacer(),
-                          if (_result != null && _result!.sourceLabel.isNotEmpty)
+                          if (_result != null &&
+                              _result!.sourceLabel.isNotEmpty)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
@@ -549,4 +566,3 @@ class _InfoStrip extends StatelessWidget {
     );
   }
 }
-

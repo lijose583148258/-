@@ -4,6 +4,18 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def releaseProperties = new Properties()
+def releasePropertiesFile = rootProject.file('key.properties')
+if (releasePropertiesFile.exists()) {
+    releasePropertiesFile.withInputStream { releaseProperties.load(it) }
+}
+def hasReleaseSigning = [
+    'storeFile',
+    'storePassword',
+    'keyAlias',
+    'keyPassword',
+].every { releaseProperties.getProperty(it) }
+
 android {
     namespace "com.fanyitong.app"
     compileSdk 36
@@ -20,15 +32,30 @@ android {
 
     defaultConfig {
         applicationId "com.fanyitong.app"
-        minSdk 21
+        minSdkVersion flutter.minSdkVersion
         targetSdk 36
         versionCode flutter.versionCode
         versionName flutter.versionName
         multiDexEnabled true
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseProperties.getProperty('storeFile'))
+                storePassword releaseProperties.getProperty('storePassword')
+                keyAlias releaseProperties.getProperty('keyAlias')
+                keyPassword releaseProperties.getProperty('keyPassword')
+            }
+        }
     }
 
     buildTypes {
         release {
+            // A real signing key is read from android/key.properties. The debug
+            // fallback keeps local and CI smoke APKs installable without secrets.
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
             proguardFiles(
@@ -49,8 +76,34 @@ flutter {
     source "../.."
 }
 
+configurations.configureEach {
+    resolutionStrategy.force(
+        "androidx.test:runner:1.6.2",
+        "androidx.test:rules:1.6.1",
+        "androidx.test.espresso:espresso-core:3.6.1",
+    )
+}
+
+tasks.matching { it.name == 'compileReleaseJavaWithJavac' }.configureEach {
+    doFirst {
+        def registrant = file('src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java')
+        if (!registrant.exists()) return
+
+        def integrationTestRegistration = java.util.regex.Pattern.compile(
+            $/(?s)\s*try \{\s*flutterEngine\.getPlugins\(\)\.add\(new dev\.flutter\.plugins\.integration_test\.IntegrationTestPlugin\(\)\);\s*\} catch \(Exception e\) \{\s*Log\.e\(TAG, "Error registering plugin integration_test, dev\.flutter\.plugins\.integration_test\.IntegrationTestPlugin", e\);\s*\}/$
+        )
+        registrant.setText(
+            integrationTestRegistration.matcher(registrant.getText('UTF-8')).replaceFirst(''),
+            'UTF-8',
+        )
+    }
+}
+
 dependencies {
     implementation "androidx.multidex:multidex:2.0.1"
-    implementation "com.google.mlkit:text-recognition:16.0.1"
-    implementation "com.google.mlkit:text-recognition-chinese:16.0.1"
+
+    testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test:runner:1.6.2"
+    androidTestImplementation "androidx.test:rules:1.6.1"
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.6.1"
 }

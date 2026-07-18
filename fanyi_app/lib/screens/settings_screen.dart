@@ -1,5 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
+import '../services/device_compatibility_service.dart';
 import '../services/local_db_service.dart';
 import '../services/mlkit_service.dart';
 import '../services/tts_service.dart';
@@ -15,6 +16,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   MlKitStatus? _mlKitStatus;
   AppStorageStats? _storageStats;
+  DeviceCompatibilityProfile? _deviceProfile;
   bool _viTtsSupported = false;
   bool _loading = true;
   bool _downloadingModels = false;
@@ -29,19 +31,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadStatus() async {
     setState(() => _loading = true);
-    final results = await Future.wait<dynamic>([
-      MlKitService.getStatus(),
-      TtsService.isViSupported,
-      LocalDbService.getStorageStats(),
-    ]);
+    final mlKitStatus = await MlKitService.getStatus();
+    final viTtsSupported = await TtsService.isViSupported;
+    final deviceProfile = await DeviceCompatibilityService.getProfile();
+    AppStorageStats? storageStats;
+    try {
+      storageStats = await LocalDbService.getStorageStats();
+    } catch (_) {
+      // Storage details are optional; the rest of settings remains available.
+    }
 
     if (!mounted) return;
     setState(() {
-      _mlKitStatus = results[0] as MlKitStatus;
-      _viTtsSupported = results[1] as bool;
-      _storageStats = results[2] as AppStorageStats;
+      _mlKitStatus = mlKitStatus;
+      _viTtsSupported = viTtsSupported;
+      _storageStats = storageStats;
+      _deviceProfile = deviceProfile;
       _loading = false;
     });
+  }
+
+  Future<void> _openTextToSpeechSettings() async {
+    await TtsService.reset();
+    await DeviceCompatibilityService.openTextToSpeechSettings();
   }
 
   Future<void> _triggerModelDownload() async {
@@ -52,7 +64,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _clearTranslationHistory() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('清理翻译历史'),
@@ -79,7 +92,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _clearMlKitCache() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('清理离线模型'),
@@ -131,6 +145,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _buildArchitectureCard(),
                 const SizedBox(height: 16),
+                _buildDeviceCompatibilityCard(),
+                const SizedBox(height: 16),
                 _buildEngineCard(
                   tier: '第一层',
                   title: '本地 SQLite 词典',
@@ -164,7 +180,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Center(
                   child: Text(
                     '翻译引擎会根据设备能力自动选择。历史记录会自动保留最近 200 条，需要时可在本页一键清理。',
-                    style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.6),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                      height: 1.6,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -209,6 +229,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildDeviceCompatibilityCard() {
+    final profile =
+        _deviceProfile ??
+        DeviceCompatibilityProfile.forManufacturer(manufacturer: '');
+    final isKnownOem = profile.family != DeviceFamily.generic;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F8F1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFB9CBB4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.phonelink_setup_rounded,
+                color: Color(0xFF4A6A46),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isKnownOem ? '已识别：${profile.familyLabel}' : '手机兼容性与系统权限',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF314B2F),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${profile.deviceLabel}${profile.sdkInt > 0 ? ' · Android ${profile.sdkInt}' : ''}',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF5F6F5B)),
+          ),
+          const SizedBox(height: 8),
+          ...profile.guidance.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: Text(
+                '• $item',
+                style: const TextStyle(fontSize: 12, height: 1.45),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () {
+                  DeviceCompatibilityService.openAppDetailsSettings().ignore();
+                },
+                icon: const Icon(Icons.mic_none_rounded, size: 17),
+                label: const Text('麦克风权限'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _openTextToSpeechSettings,
+                icon: const Icon(Icons.record_voice_over_outlined, size: 17),
+                label: const Text('语音包设置'),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  DeviceCompatibilityService.openAccessibilitySettings()
+                      .ignore();
+                },
+                icon: const Icon(Icons.accessibility_new_rounded, size: 17),
+                label: const Text('无障碍服务'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _flowStep(String name, String desc, String? arrow) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -230,7 +332,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(width: 6),
-          Text(desc, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          Text(
+            desc,
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
           if (arrow != null) ...[
             const SizedBox(width: 6),
             const Icon(Icons.arrow_forward, color: Colors.white54, size: 14),
@@ -321,8 +426,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Text(
             available
                 ? modelsReady
-                    ? '模型已就绪，适合真机长期测试。'
-                    : '已检测到 Google Play 服务，模型正在后台准备。'
+                      ? '模型已就绪，适合真机长期测试。'
+                      : '已检测到 Google Play 服务，模型正在后台准备。'
                 : '未检测到 Google Play 服务，设备会自动走本地词典和联网兜底。',
             style: const TextStyle(
               fontSize: 12,
@@ -471,9 +576,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _ttsRow(
             '越南语朗读',
             _viTtsSupported,
-            _viTtsSupported
-                ? '设备已支持越南语朗读。'
-                : '未检测到越南语语音包，可在系统里安装。',
+            _viTtsSupported ? '设备已支持越南语朗读。' : '未检测到越南语语音包，可在系统里安装。',
           ),
         ],
       ),
@@ -504,7 +607,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               Text(
                 desc,
-                style: const TextStyle(fontSize: 11, color: Colors.grey, height: 1.4),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey,
+                  height: 1.4,
+                ),
               ),
             ],
           ),
@@ -544,8 +651,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             stats == null
                 ? '正在统计本地占用...'
                 : '翻译历史：${stats.historyCount}/${stats.maxHistory} 条  ·  '
-                    '词典文件：${_formatBytes(stats.dictionaryBytes)}  ·  '
-                    'App 数据：${_formatBytes(stats.appDbBytes)}',
+                      '词典文件：${_formatBytes(stats.dictionaryBytes)}  ·  '
+                      'App 数据：${_formatBytes(stats.appDbBytes)}',
             style: const TextStyle(
               fontSize: 12,
               color: Color(0xFF5D5D5D),
