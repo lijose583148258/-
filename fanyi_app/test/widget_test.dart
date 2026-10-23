@@ -5,7 +5,7 @@ void main() {
   testWidgets('app widget smoke test', (tester) async {
     await tester.pumpWidget(const FanyiTongApp());
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(seconds: 4));
 
     expect(find.byType(FanyiTongApp), findsOneWidget);
     expect(find.byType(MainLayout), findsOneWidget);

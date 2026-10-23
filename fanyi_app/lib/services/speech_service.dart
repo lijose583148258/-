@@ -11,13 +11,13 @@ class SpeechService {
   static bool _available = false;
   static bool _initialized = false;
 
-  static const Duration _permissionStatusTimeout = Duration(seconds: 5);
-  static const Duration _permissionRequestTimeout = Duration(seconds: 30);
-  static const Duration _platformTimeout = Duration(seconds: 10);
-  static const Duration _stopTimeout = Duration(seconds: 5);
+  static const Duration _permissionStatusTimeout = Duration(seconds: 3);
+  static const Duration _permissionRequestTimeout = Duration(seconds: 3);
+  static const Duration _platformTimeout = Duration(seconds: 3);
+  static const Duration _stopTimeout = Duration(seconds: 2);
 
   static Future<bool> initialize({
-    bool requestPermission = true,
+    bool requestPermission = false,
     bool forceRetry = false,
   }) {
     if (_initializing != null) return _initializing!;
@@ -38,12 +38,13 @@ class SpeechService {
     try {
       final status = await Permission.microphone.status.timeout(
         _permissionStatusTimeout,
+        onTimeout: () => PermissionStatus.denied,
       );
       if (!status.isGranted) {
         _available = false;
         return false;
       }
-      return initialize(requestPermission: false, forceRetry: !_available);
+      return await initialize(requestPermission: false, forceRetry: !_available);
     } catch (error) {
       debugPrint('Microphone permission status is unavailable: $error');
       _available = false;
@@ -62,6 +63,7 @@ class SpeechService {
             )
           : await Permission.microphone.status.timeout(
               _permissionStatusTimeout,
+              onTimeout: () => PermissionStatus.denied,
             );
       if (!status.isGranted) {
         debugPrint('Microphone permission was denied.');
@@ -74,6 +76,10 @@ class SpeechService {
           .initialize(
             onError: (error) => debugPrint('STT error: ${error.errorMsg}'),
             onStatus: (status) => debugPrint('STT status: $status'),
+            options: [
+              SpeechToText.androidNoBluetooth,
+              SpeechToText.androidIntentLookup,
+            ],
           )
           .timeout(_platformTimeout, onTimeout: () => false);
       return _available;
@@ -87,6 +93,26 @@ class SpeechService {
     }
   }
 
+  static Future<String> resolveLocaleId(String requestedLocale) async {
+    try {
+      final locales = await getSupportedLocales();
+      if (locales.isEmpty) return requestedLocale;
+      final normalizedReq = requestedLocale.toLowerCase().replaceAll('_', '-');
+      for (final loc in locales) {
+        if (loc.toLowerCase().replaceAll('_', '-') == normalizedReq) {
+          return loc;
+        }
+      }
+      final prefix = normalizedReq.split('-').first;
+      for (final loc in locales) {
+        if (loc.toLowerCase().startsWith(prefix)) {
+          return loc;
+        }
+      }
+    } catch (_) {}
+    return requestedLocale;
+  }
+
   static Future<bool> startListening({
     required String localeId,
     required ValueChanged<String> onResult,
@@ -94,13 +120,15 @@ class SpeechService {
     ValueChanged<String>? onError,
   }) async {
     try {
-      if (!_initialized && !await initialize()) return false;
+      if (!_initialized && !await initialize(requestPermission: true)) return false;
       final speech = _speech;
       if (!_available || speech == null) return false;
 
       if (speech.isListening) {
-        await speech.stop().timeout(_stopTimeout);
+        await speech.stop().timeout(_stopTimeout, onTimeout: () {});
       }
+
+      final actualLocaleId = await resolveLocaleId(localeId);
 
       bool doneTriggered = false;
       void triggerDone() {
@@ -112,7 +140,7 @@ class SpeechService {
 
       speech.statusListener = (status) {
         debugPrint('STT status listener: $status');
-        if (status == 'notListening' || status == 'done') {
+        if (status == 'done' || status == 'notListening') {
           triggerDone();
         }
       };
@@ -120,7 +148,6 @@ class SpeechService {
       speech.errorListener = (errorNotification) {
         debugPrint('STT error listener: ${errorNotification.errorMsg}');
         onError?.call(errorNotification.errorMsg);
-        triggerDone();
       };
 
       await speech
@@ -131,15 +158,16 @@ class SpeechService {
                 triggerDone();
               }
             },
-            localeId: localeId,
-            listenFor: const Duration(seconds: 30),
-            pauseFor: const Duration(seconds: 3),
             listenOptions: SpeechListenOptions(
               partialResults: true,
               cancelOnError: true,
+              listenMode: ListenMode.dictation,
+              localeId: actualLocaleId,
+              listenFor: const Duration(seconds: 30),
+              pauseFor: const Duration(seconds: 4),
             ),
           )
-          .timeout(_platformTimeout);
+          .timeout(_platformTimeout, onTimeout: () {});
       return true;
     } catch (error, stack) {
       debugPrint('Speech recognition could not start: $error\n$stack');
@@ -152,7 +180,7 @@ class SpeechService {
     try {
       final speech = _speech;
       if (speech != null && speech.isListening) {
-        await speech.stop().timeout(_stopTimeout);
+        await speech.stop().timeout(_stopTimeout, onTimeout: () {});
       }
     } catch (error) {
       debugPrint('Speech recognition could not stop: $error');
@@ -163,7 +191,7 @@ class SpeechService {
     try {
       final speech = _speech;
       if (speech != null && speech.isListening) {
-        await speech.cancel().timeout(_stopTimeout);
+        await speech.cancel().timeout(_stopTimeout, onTimeout: () {});
       }
     } catch (error) {
       debugPrint('Speech recognition could not be cancelled: $error');
@@ -184,7 +212,7 @@ class SpeechService {
     try {
       final speech = _speech;
       if (!_available || speech == null) return const [];
-      final locales = await speech.locales().timeout(_platformTimeout);
+      final locales = await speech.locales().timeout(_platformTimeout, onTimeout: () => []);
       return locales.map((locale) => locale.localeId).toList();
     } catch (error) {
       debugPrint('Speech locale discovery failed: $error');

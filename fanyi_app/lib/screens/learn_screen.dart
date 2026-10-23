@@ -496,6 +496,7 @@ class _CourseCard extends StatelessWidget {
                 CircleAvatar(
                   backgroundColor: color.withValues(alpha: 0.16),
                   child: Icon(
+                    // ignore: non_const_argument_for_const_parameter
                     IconData(course.iconCode, fontFamily: 'MaterialIcons'),
                     color: color,
                   ),

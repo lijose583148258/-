@@ -31,7 +31,7 @@ class _ConversationScreenState extends State<ConversationScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initSpeech(requestPermission: true);
+    _initSpeech(requestPermission: false);
   }
 
   @override
@@ -51,7 +51,7 @@ class _ConversationScreenState extends State<ConversationScreen>
 
   Future<void> _initSpeech({bool requestPermission = false}) async {
     final available = requestPermission
-        ? await SpeechService.initialize()
+        ? await SpeechService.initialize(requestPermission: true)
         : await SpeechService.refreshAvailability();
     final viAvailable = available
         ? await SpeechService.isVietnameseSpeechSupported()
@@ -91,9 +91,21 @@ class _ConversationScreenState extends State<ConversationScreen>
 
   Future<void> _startListening(bool chineseSource) async {
     if (_isFinalizing) return;
+
     if (!_speechAvailable) {
-      await _manualInput(chineseSource);
-      return;
+      final available = await SpeechService.initialize(requestPermission: true);
+      if (!mounted) return;
+      final viAvailable = available
+          ? await SpeechService.isVietnameseSpeechSupported()
+          : false;
+      setState(() {
+        _speechAvailable = available;
+        _vietnameseSpeechAvailable = viAvailable;
+      });
+      if (!available) {
+        _showSpeechUnavailable();
+        return;
+      }
     }
 
     if (!chineseSource && !_vietnameseSpeechAvailable) {
@@ -117,6 +129,7 @@ class _ConversationScreenState extends State<ConversationScreen>
       onDone: () => unawaited(_stopAndTranslate(chineseSource)),
       onError: (error) {
         debugPrint('STT error callback: $error');
+        SpeechService.cancelListening().ignore();
         if (mounted && _isListening && _listeningChineseSource == chineseSource) {
           if (_liveText.trim().isNotEmpty) {
             unawaited(_stopAndTranslate(chineseSource));
@@ -126,7 +139,10 @@ class _ConversationScreenState extends State<ConversationScreen>
               _liveText = '';
             });
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('未识别到语音，请靠近麦克风重试。')),
+              const SnackBar(
+                content: Text('未识别到语音，请靠近麦克风或使用文字输入。'),
+                duration: Duration(seconds: 3),
+              ),
             );
           }
         }
@@ -138,7 +154,7 @@ class _ConversationScreenState extends State<ConversationScreen>
         _isListening = false;
         _liveText = '';
       });
-      _showSpeechUnavailable();
+      _showSpeechUnavailable(chineseSource: chineseSource);
     }
   }
 
@@ -200,74 +216,59 @@ class _ConversationScreenState extends State<ConversationScreen>
 
   Future<void> _manualInput(bool chineseSource) async {
     if (_isFinalizing) return;
-    final controller = TextEditingController();
-    bool? confirmed;
-    String text = '';
-    try {
-      confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            title: Text(chineseSource ? '输入中文' : '输入越南语'),
-            content: TextField(
-              controller: controller,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: chineseSource
-                    ? '输入中文后直接翻译为越南语并朗读。'
-                    : '输入越南语后直接翻译为中文并朗读。',
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('翻译'),
-              ),
-            ],
-          );
-        },
-      );
-      text = controller.text.trim();
-    } finally {
-      controller.dispose();
-    }
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => _ManualInputDialog(chineseSource: chineseSource),
+    );
 
-    if (confirmed == true && text.isNotEmpty && mounted) {
+    if (text != null && text.isNotEmpty && mounted) {
       setState(() => _liveText = text);
       await _stopAndTranslate(chineseSource);
     }
   }
 
-  void _showSpeechUnavailable() {
+  void _showSpeechUnavailable({bool? chineseSource}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('当前设备无法使用语音识别，请检查权限或改用手动输入。'),
+        content: const Text('麦克风权限未开启或语音服务不可用，已自动切换为文字输入。'),
         action: SnackBarAction(
           label: '检查权限',
           onPressed: _retrySpeech,
         ),
       ),
     );
+    if (chineseSource != null) {
+      _manualInput(chineseSource);
+    }
   }
 
   Future<void> _onInputPressed(bool chineseSource) async {
     if (_isFinalizing) return;
 
-    if (!chineseSource && !_vietnameseSpeechAvailable) {
+    if (!chineseSource && _speechAvailable && !_vietnameseSpeechAvailable) {
       await _manualInput(false);
       return;
     }
 
     if (!_speechAvailable) {
-      await _manualInput(chineseSource);
-      return;
+      final available = await SpeechService.initialize(requestPermission: true);
+      if (!mounted) return;
+      final viAvailable = available
+          ? await SpeechService.isVietnameseSpeechSupported()
+          : false;
+      setState(() {
+        _speechAvailable = available;
+        _vietnameseSpeechAvailable = viAvailable;
+      });
+      if (!available) {
+        _showSpeechUnavailable(chineseSource: chineseSource);
+        return;
+      }
+      if (!chineseSource && !viAvailable) {
+        await _manualInput(false);
+        return;
+      }
     }
 
     if (_isListening) {
@@ -304,6 +305,11 @@ class _ConversationScreenState extends State<ConversationScreen>
       appBar: AppBar(
         title: const Text('面对面翻译'),
         actions: [
+          IconButton(
+            onPressed: _isFinalizing ? null : () => _manualInput(true),
+            icon: const Icon(Icons.keyboard_outlined),
+            tooltip: '文字输入',
+          ),
           if (_messages.isNotEmpty)
             IconButton(
               onPressed: _isFinalizing ? null : () => setState(() => _messages.clear()),
@@ -415,14 +421,14 @@ class _ConversationScreenState extends State<ConversationScreen>
                               ? (_isListening && _listeningChineseSource
                                   ? '点击停止并翻译'
                                   : '点按开始说话')
-                              : '手动输入中文',
+                              : '点按说话 / 输入',
                           color: AppTheme.accent,
                           active: _isListening && _listeningChineseSource,
                           icon: _speechAvailable
                               ? (_isListening && _listeningChineseSource
                                   ? Icons.stop_rounded
                                   : Icons.mic_rounded)
-                              : Icons.keyboard_rounded,
+                              : Icons.mic_rounded,
                           onPressed: _isFinalizing ? null : () => _onInputPressed(true),
                         ),
                       ),
@@ -434,7 +440,7 @@ class _ConversationScreenState extends State<ConversationScreen>
                               ? (_isListening && !_listeningChineseSource
                                   ? '点击停止并翻译'
                                   : '点按开始说话')
-                              : '手动输入越南语',
+                              : '点按输入越南语',
                           color: AppTheme.cyan,
                           active: _isListening && !_listeningChineseSource,
                           icon: (_speechAvailable && _vietnameseSpeechAvailable)
@@ -679,4 +685,57 @@ class _ConversationEntry {
     required this.chineseSource,
     required this.sourceLabel,
   });
+}
+
+class _ManualInputDialog extends StatefulWidget {
+  final bool chineseSource;
+
+  const _ManualInputDialog({required this.chineseSource});
+
+  @override
+  State<_ManualInputDialog> createState() => _ManualInputDialogState();
+}
+
+class _ManualInputDialogState extends State<_ManualInputDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.chineseSource ? '输入中文' : '输入越南语'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        minLines: 2,
+        maxLines: 4,
+        decoration: InputDecoration(
+          hintText: widget.chineseSource
+              ? '输入中文后直接翻译为越南语并朗读。'
+              : '输入越南语后直接翻译为中文并朗读（可使用键盘语音输入）。',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('翻译'),
+        ),
+      ],
+    );
+  }
 }
