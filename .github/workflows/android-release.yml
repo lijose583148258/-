@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - 'codex/**'
 
 concurrency:
   group: android-release-${{ github.ref }}
