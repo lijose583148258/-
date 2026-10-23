@@ -35,9 +35,6 @@ jobs:
         with:
           channel: stable
 
-      - name: Bootstrap platform files
-        run: flutter create --org com.fanyitong --project-name fanyi_tong --platforms=android .
-
       - name: Install dependencies
         run: flutter pub get
 
