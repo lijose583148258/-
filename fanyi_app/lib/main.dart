@@ -7,11 +7,13 @@ import 'screens/learn_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/translation_screen.dart';
 import 'services/app_action_service.dart';
+import 'services/free_entitlement_service.dart';
 import 'services/translation_service.dart';
 import 'ui/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await FreeEntitlementService.init();
   await AppActionService.init();
   TranslationService.warmUp();
   runApp(const FanyiTongApp());

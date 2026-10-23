@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - 'codex/**'
 
 concurrency:
   group: android-release-${{ github.ref }}
@@ -33,9 +34,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-
-      - name: Bootstrap platform files
-        run: flutter create --org com.fanyitong --project-name fanyi_tong --platforms=android .
 
       - name: Install dependencies
         run: flutter pub get
